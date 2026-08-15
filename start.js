@@ -1,0 +1,184 @@
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+const { execSync, spawn } = require('child_process');
+
+const PHP_ZIP_URL = 'https://windows.php.net/downloads/releases/php-8.3.10-nts-Win32-vs16-x64.zip';
+const PHP_ARCHIVES_ZIP_URL = 'https://windows.php.net/downloads/releases/archives/php-8.3.10-nts-Win32-vs16-x64.zip';
+const WORKSPACE_DIR = __dirname;
+const PHP_DIR = path.join(WORKSPACE_DIR, 'php-bin');
+const ZIP_PATH = path.join(WORKSPACE_DIR, 'php.zip');
+
+function log(msg) {
+  console.log(`[LOG] ${new Date().toLocaleTimeString()}: ${msg}`);
+}
+
+function downloadPHP(url = PHP_ZIP_URL) {
+  return new Promise((resolve, reject) => {
+    log(`Requesting URL: ${url}`);
+    https.get(url, (response) => {
+      // Handle redirect
+      if ([301, 302, 307, 308].includes(response.statusCode)) {
+        let location = response.headers.location;
+        if (!location) {
+          reject(new Error(`Redirect response missing Location header with code ${response.statusCode}`));
+          return;
+        }
+        log(`Redirected (status ${response.statusCode}) to: ${location}`);
+        // Handle relative redirect url
+        if (!location.startsWith('http')) {
+          location = new URL(location, url).href;
+        }
+        resolve(downloadPHP(location));
+        return;
+      }
+
+      // Handle 404 fallback to archives
+      if (response.statusCode === 404 && url !== PHP_ARCHIVES_ZIP_URL) {
+        log(`PHP version not found in active releases (404). Trying archives folder...`);
+        resolve(downloadPHP(PHP_ARCHIVES_ZIP_URL));
+        return;
+      }
+
+      if (response.statusCode !== 200) {
+        reject(new Error(`Failed to download PHP. HTTP Status: ${response.statusCode}`));
+        return;
+      }
+      
+      const file = fs.createWriteStream(ZIP_PATH);
+      const totalBytes = parseInt(response.headers['content-length'], 10) || 0;
+      let downloadedBytes = 0;
+      let lastReport = 0;
+
+      response.pipe(file);
+
+      response.on('data', (chunk) => {
+        downloadedBytes += chunk.length;
+        if (totalBytes > 0) {
+          const percent = Math.floor((downloadedBytes / totalBytes) * 100);
+          if (percent - lastReport >= 10 || percent === 100) {
+            log(`Download Progress: ${percent}% (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB / ${(totalBytes / (1024 * 1024)).toFixed(1)} MB)`);
+            lastReport = percent;
+          }
+        }
+      });
+
+      file.on('finish', () => {
+        file.close();
+        log('Download completed successfully.');
+        resolve();
+      });
+    }).on('error', (err) => {
+      fs.unlink(ZIP_PATH, () => {});
+      reject(err);
+    });
+  });
+}
+
+function extractPHP() {
+  log('Extracting PHP zip archive using Windows PowerShell...');
+  if (!fs.existsSync(PHP_DIR)) {
+    fs.mkdirSync(PHP_DIR, { recursive: true });
+  }
+  
+  // Use PowerShell to extract the zip file natively
+  const command = `powershell -NoProfile -Command "Expand-Archive -Path '${ZIP_PATH}' -DestinationPath '${PHP_DIR}' -Force"`;
+  try {
+    execSync(command, { stdio: 'inherit' });
+    log('Extraction complete.');
+  } catch (error) {
+    throw new Error(`Failed to extract PHP zip: ${error.message}`);
+  }
+}
+
+function configurePHP() {
+  log('Configuring php.ini file with SQLite modules...');
+  const iniPath = path.join(PHP_DIR, 'php.ini');
+  
+  const iniContent = `
+[PHP]
+max_execution_time = 300
+memory_limit = 128M
+error_reporting = E_ALL
+display_errors = On
+display_startup_errors = On
+post_max_size = 50M
+upload_max_filesize = 50M
+default_charset = "UTF-8"
+
+extension_dir = "ext"
+
+extension=curl
+extension=mbstring
+extension=openssl
+extension=pdo_sqlite
+extension=sqlite3
+
+[Date]
+date.timezone = "Asia/Kolkata"
+`;
+
+  fs.writeFileSync(iniPath, iniContent.trim(), 'utf8');
+  log(`php.ini written at ${iniPath}`);
+}
+
+function cleanUp() {
+  log('Cleaning up temporary zip file...');
+  if (fs.existsSync(ZIP_PATH)) {
+    fs.unlinkSync(ZIP_PATH);
+    log('Temporary zip file removed.');
+  }
+}
+
+function openBrowser() {
+  log('Opening application in default web browser...');
+  const url = 'http://127.0.0.1:8000';
+  const cmd = process.platform === 'win32' ? `start ${url}` : `open ${url}`;
+  try {
+    execSync(cmd);
+  } catch (e) {
+    log(`Could not automatically open browser. Please open ${url} manually.`);
+  }
+}
+
+async function main() {
+  try {
+    // 1. Check if PHP is already downloaded and extracted
+    const phpExePath = path.join(PHP_DIR, 'php.exe');
+    if (!fs.existsSync(phpExePath)) {
+      await downloadPHP();
+      extractPHP();
+      configurePHP();
+      cleanUp();
+    } else {
+      log('Portable PHP environment detected. Skipping download and extraction.');
+      // Re-configure to ensure ini is updated
+      configurePHP();
+    }
+
+    // 2. Start the local server (without shell: true to avoid space quoting issues in paths)
+    log('Starting local PHP web server on http://127.0.0.1:8000...');
+    const phpProcess = spawn(phpExePath, ['-S', '127.0.0.1:8000', 'gas-agency-standalone.php'], {
+      cwd: WORKSPACE_DIR,
+      stdio: 'inherit'
+    });
+
+    // 3. Open the browser after a short delay to allow the server to bind to the port
+    setTimeout(() => {
+      openBrowser();
+    }, 1500);
+
+    phpProcess.on('error', (err) => {
+      console.error('PHP Server error:', err);
+    });
+
+    phpProcess.on('exit', (code) => {
+      log(`PHP Server stopped (Exit code: ${code})`);
+    });
+
+  } catch (error) {
+    console.error('Error during setup or startup:', error);
+  }
+}
+
+main();

@@ -1,0 +1,12 @@
+# Database files
+*.db
+*.sqlite
+
+# Logs
+*.log
+.system_generated/
+
+# Temp
+.idea/
+.vscode/
+tmp/
