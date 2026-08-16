@@ -2,6 +2,14 @@
 *.db
 *.sqlite
 
+# SSL Certificates (keep private, regenerate locally)
+server.crt
+server.key
+gen-cert.php
+
+# Network config (auto-generated on startup)
+network_config.json
+
 # Logs
 *.log
 .system_generated/
