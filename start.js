@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const os = require('os');
 const { execSync, spawn } = require('child_process');
 
 const PHP_ZIP_URL = 'https://windows.php.net/downloads/releases/php-8.3.10-nts-Win32-vs16-x64.zip';
@@ -8,9 +9,46 @@ const PHP_ARCHIVES_ZIP_URL = 'https://windows.php.net/downloads/releases/archive
 const WORKSPACE_DIR = __dirname;
 const PHP_DIR = path.join(WORKSPACE_DIR, 'php-bin');
 const ZIP_PATH = path.join(WORKSPACE_DIR, 'php.zip');
+const PORT = 8000;
 
 function log(msg) {
   console.log(`[LOG] ${new Date().toLocaleTimeString()}: ${msg}`);
+}
+
+// Auto-detect local WiFi / LAN IP address
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  const candidates = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      // Skip loopback and non-IPv4
+      if (iface.family === 'IPv4' && !iface.internal) {
+        candidates.push({ name, address: iface.address });
+      }
+    }
+  }
+  // Prefer WiFi / WLAN interfaces, then Ethernet, then any
+  const wifi = candidates.find(c => /wi.?fi|wlan|wireless/i.test(c.name));
+  const eth  = candidates.find(c => /eth|local area|lan/i.test(c.name));
+  const chosen = wifi || eth || candidates[0];
+  return chosen ? chosen.address : '127.0.0.1';
+}
+
+function printBanner(localIP) {
+  const networkUrl = `http://${localIP}:${PORT}`;
+  const localUrl   = `http://127.0.0.1:${PORT}`;
+
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════╗');
+  console.log('║         🏭  Gas Agency CRM — Server Running              ║');
+  console.log('╠══════════════════════════════════════════════════════════╣');
+  console.log(`║  📍 This PC (Local):   ${localUrl.padEnd(34)}║`);
+  console.log(`║  🌐 WiFi Network URL:  ${networkUrl.padEnd(34)}║`);
+  console.log('║                                                          ║');
+  console.log('║  Share the WiFi Network URL with other PCs/Mobiles       ║');
+  console.log('║  on the same WiFi to access this portal from anywhere!   ║');
+  console.log('╚══════════════════════════════════════════════════════════╝');
+  console.log('');
 }
 
 function downloadPHP(url = PHP_ZIP_URL) {
@@ -130,9 +168,9 @@ function cleanUp() {
   }
 }
 
-function openBrowser() {
-  log('Opening application in default web browser...');
-  const url = 'http://127.0.0.1:8000';
+function openBrowser(localIP) {
+  const url = `http://${localIP}:${PORT}`;
+  log(`Opening application in default web browser: ${url}`);
   const cmd = process.platform === 'win32' ? `start ${url}` : `open ${url}`;
   try {
     execSync(cmd);
@@ -141,8 +179,18 @@ function openBrowser() {
   }
 }
 
+// Save the detected network IP into a file so PHP can read it
+function saveNetworkIP(ip) {
+  const configPath = path.join(WORKSPACE_DIR, 'network_config.json');
+  const config = { ip, port: PORT, url: `http://${ip}:${PORT}`, generated: new Date().toISOString() };
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+}
+
 async function main() {
   try {
+    const localIP = getLocalIP();
+    saveNetworkIP(localIP);
+
     // 1. Check if PHP is already downloaded and extracted
     const phpExePath = path.join(PHP_DIR, 'php.exe');
     if (!fs.existsSync(phpExePath)) {
@@ -156,16 +204,18 @@ async function main() {
       configurePHP();
     }
 
-    // 2. Start the local server (without shell: true to avoid space quoting issues in paths)
-    log('Starting local PHP web server on http://127.0.0.1:8000...');
-    const phpProcess = spawn(phpExePath, ['-S', '127.0.0.1:8000', 'gas-agency-standalone.php'], {
+    // 2. Start the local server bound to ALL network interfaces (0.0.0.0)
+    //    This allows access from any device on the same WiFi network
+    log(`Starting PHP web server on 0.0.0.0:${PORT} (all network interfaces)...`);
+    const phpProcess = spawn(phpExePath, ['-S', `0.0.0.0:${PORT}`, 'gas-agency-standalone.php'], {
       cwd: WORKSPACE_DIR,
       stdio: 'inherit'
     });
 
-    // 3. Open the browser after a short delay to allow the server to bind to the port
+    // 3. Print network access banner
     setTimeout(() => {
-      openBrowser();
+      printBanner(localIP);
+      openBrowser(localIP);
     }, 1500);
 
     phpProcess.on('error', (err) => {

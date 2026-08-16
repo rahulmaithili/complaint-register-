@@ -2023,11 +2023,25 @@ if ($action) {
                 $settings[$r['setting_key']] = $r['setting_value'];
             }
 
-            // Sources
-            $sources = isset($settings['ComplaintSources']) ? array_map('trim', explode(',', $settings['ComplaintSources'])) : ['Office Phone','Delivery','Leakage','District Office','MO'];
-            $sources = array_filter($sources);
+            // Network config (written by start.js)
+            $network_config = [];
+            $net_cfg_path = __DIR__ . '/network_config.json';
+            if (file_exists($net_cfg_path)) {
+                $nc = json_decode(file_get_contents($net_cfg_path), true);
+                if ($nc) $network_config = $nc;
+            }
+            if (empty($network_config)) {
+                // Fallback: detect server IP from PHP
+                $server_ip = $_SERVER['SERVER_ADDR'] ?? '127.0.0.1';
+                $server_port = $_SERVER['SERVER_PORT'] ?? 8000;
+                $network_config = [
+                    'ip'   => $server_ip,
+                    'port' => $server_port,
+                    'url'  => "http://{$server_ip}:{$server_port}"
+                ];
+            }
 
-            echo json_encode(['success' => true, 'settings' => $settings, 'sources' => array_values($sources)]);
+            echo json_encode(['success' => true, 'settings' => $settings, 'sources' => array_values($sources), 'network' => $network_config]);
             break;
 
         case 'save_branding':
@@ -3993,7 +4007,40 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             </div>
           </div>
 
+          <!-- Network Info Card -->
+          <div class="content-card" id="networkInfoCard" style="grid-column: 1 / -1;">
+            <div class="toolbar"><div style="font-weight: 700;"><i class="fas fa-wifi" style="color:var(--primary)"></i> Network Access Info</div></div>
+            <div style="padding: 1.5rem;">
+              <p style="margin:0 0 1rem; font-size:0.85rem; color:var(--text-muted); line-height:1.5;">
+                Apne WiFi network par kisi bhi PC ya Mobile se is portal ko neeche diye URL se open karein. Sabhi devices ka data ek hi jagah se aayega.
+              </p>
+              <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin-bottom:1.25rem;">
+                <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px;">
+                  <div style="font-size:0.68rem; font-weight:800; text-transform:uppercase; color:#166534; margin-bottom:6px;"><i class="fas fa-desktop"></i> Server Host IP</div>
+                  <div id="netInfoIP" style="font-size:1.2rem; font-weight:900; color:#15803d; font-family:monospace;">—</div>
+                </div>
+                <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:14px;">
+                  <div style="font-size:0.68rem; font-weight:800; text-transform:uppercase; color:#1e40af; margin-bottom:6px;"><i class="fas fa-plug"></i> Port</div>
+                  <div id="netInfoPort" style="font-size:1.2rem; font-weight:900; color:#1d4ed8; font-family:monospace;">—</div>
+                </div>
+              </div>
+              <div style="background:#1e293b; border-radius:10px; padding:14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:0.65rem; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:4px;"><i class="fas fa-link"></i> Network URL — Share with other devices</div>
+                  <div id="netInfoURL" style="font-size:0.95rem; font-weight:700; color:#38bdf8; font-family:monospace; word-break:break-all;">—</div>
+                </div>
+                <button onclick="copyNetworkURL()" style="background:#0ea5e9; color:#fff; border:none; border-radius:8px; padding:10px 18px; font-weight:700; font-size:0.8rem; cursor:pointer; white-space:nowrap; flex-shrink:0;">
+                  <i class="fas fa-copy"></i> Copy URL
+                </button>
+              </div>
+              <div style="margin-top:1rem; background:#fefce8; border:1px solid #fde047; border-radius:8px; padding:12px; font-size:0.8rem; color:#713f12; line-height:1.5;">
+                <i class="fas fa-info-circle"></i> <strong>Note:</strong> Server host PC aur baaki devices ek hi WiFi/Router se connected hone chahiye. Server host PC band karne par dusre devices access nahi kar paayenge.
+              </div>
+            </div>
+          </div>
+
           <!-- Branch Management Card -->
+
           <div class="content-card" id="branchManagementCard" style="grid-column: 1 / -1; display: none;">
             <div class="toolbar" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
               <div style="font-weight: 700;"><i class="fas fa-network-wired" style="color:var(--primary)"></i> Manage Agency Branches</div>
@@ -7008,8 +7055,30 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             document.getElementById('setSources').value = res.sources.join('\n');
             renderSourcesTags();
             document.getElementById('setTemplate').value = res.settings.VendorMessageTemplate || '';
+
+            // Populate Network Info card
+            if (res.network) {
+              const n = res.network;
+              const ipEl   = document.getElementById('netInfoIP');
+              const portEl = document.getElementById('netInfoPort');
+              const urlEl  = document.getElementById('netInfoURL');
+              if (ipEl)   ipEl.textContent   = n.ip   || '—';
+              if (portEl) portEl.textContent = n.port || '—';
+              if (urlEl)  urlEl.textContent  = n.url  || '—';
+              State._networkURL = n.url || '';
+            }
           }
         });
+    }
+
+    function copyNetworkURL() {
+      const url = State._networkURL || document.getElementById('netInfoURL')?.textContent || '';
+      if (!url || url === '—') { Swal.fire('Oops', 'Network URL abhi available nahi hai. Pehle run-app.bat se server start karein.', 'warning'); return; }
+      navigator.clipboard.writeText(url).then(() => {
+        Swal.fire({ icon: 'success', title: 'Copied!', text: `${url} — clipboard me copy ho gaya. Dusre devices ko share karein.`, timer: 2500, showConfirmButton: false });
+      }).catch(() => {
+        prompt('URL copy karein (Ctrl+C):', url);
+      });
     }
 
     function renderSourcesTags() {
