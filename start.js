@@ -222,9 +222,10 @@ async function main() {
       configurePHP();
     }
 
-    // 2. Start PHP on internal port (HTTP always — PHP built-in server doesn't support TLS)
-    log(`Starting PHP server on 127.0.0.1:${phpPort} (internal)...`);
-    const phpProcess = spawn(phpExePath, ['-S', `127.0.0.1:${phpPort}`, 'gas-agency-standalone.php'], {
+    // 2. Start PHP on internal port
+    log(`Starting PHP server on 0.0.0.0:${phpPort}...`);
+    // By not specifying a file, PHP defaults to index.php
+    const phpProcess = spawn(phpExePath, ['-S', `0.0.0.0:${phpPort}`], {
       cwd: WORKSPACE_DIR,
       stdio: 'inherit'
     });

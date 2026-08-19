@@ -10,201 +10,209 @@ if (session_status() === PHP_SESSION_NONE) {
 
 define('APP_URL', ''); // Self-relative URLs
 
-// Connect directly to local SQLite file in the same directory
-try {
-    $db = new PDO("sqlite:" . __DIR__ . "/gas_complaints_db.sqlite");
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-    
-    // Enable busy timeout (wait up to 15 seconds for locks to clear) and WAL mode for concurrent read/write stability
-    $db->exec("PRAGMA busy_timeout = 15000;");
-    $db->exec("PRAGMA journal_mode = WAL;");
-} catch (PDOException $e) {
-    die("Database Connection Error: " . $e->getMessage());
-}
+// SaaS Authentication Check
+// Instead of redirecting, we stay on this page. If not authenticated, $db remains null.
+$db = null;
 
-// Expand schema for new employee columns if not exist
-try {
-    $db->exec("ALTER TABLE gas_users ADD COLUMN mobile TEXT NULL");
-} catch (Exception $e) {}
-try {
-    $db->exec("ALTER TABLE gas_users ADD COLUMN profile_photo TEXT NULL");
-} catch (Exception $e) {}
-try {
-    $db->exec("ALTER TABLE gas_consumers ADD COLUMN ekyc_status TEXT DEFAULT ''");
-} catch (Exception $e) {}
-
-// Multi-branch schema migrations
-try {
-    $db->exec("
-        CREATE TABLE IF NOT EXISTS gas_branches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            code TEXT DEFAULT '',
-            brand TEXT DEFAULT 'HP',
-            address TEXT DEFAULT '',
-            mobile TEXT DEFAULT '',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-    ");
-} catch (Exception $e) {}
-
-try {
-    $count = (int)$db->query("SELECT COUNT(*) FROM gas_branches")->fetchColumn();
-    if ($count === 0) {
-        $db->exec("INSERT INTO gas_branches (name, code, brand) VALUES ('Main Branch', 'MAIN', 'HP')");
-    }
-} catch (Exception $e) {}
-
-$default_branch_id = 1;
-try {
-    $default_branch_id = (int)$db->query("SELECT id FROM gas_branches ORDER BY id ASC LIMIT 1")->fetchColumn();
-} catch (Exception $e) {}
-
-try {
-    $db->exec("ALTER TABLE gas_users ADD COLUMN branch_id INTEGER DEFAULT $default_branch_id");
-} catch (Exception $e) {}
-try {
-    $db->exec("ALTER TABLE gas_complaints ADD COLUMN branch_id INTEGER DEFAULT $default_branch_id");
-} catch (Exception $e) {}
-try {
-    $db->exec("ALTER TABLE gas_consumers ADD COLUMN branch_id INTEGER DEFAULT $default_branch_id");
-} catch (Exception $e) {}
-
-try {
-    $db->exec("UPDATE gas_users SET branch_id = $default_branch_id WHERE branch_id IS NULL OR branch_id = 0");
-} catch (Exception $e) {}
-try {
-    $db->exec("UPDATE gas_complaints SET branch_id = $default_branch_id WHERE branch_id IS NULL OR branch_id = 0");
-} catch (Exception $e) {}
-try {
-    $db->exec("UPDATE gas_consumers SET branch_id = $default_branch_id WHERE branch_id IS NULL OR branch_id = 0");
-} catch (Exception $e) {}
-
-// Auto-run schema setup if tables don't exist
-try {
-    $db->query("SELECT 1 FROM gas_users LIMIT 1");
-} catch (Exception $e) {
-    $db->exec("
-        CREATE TABLE IF NOT EXISTS gas_users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            name TEXT NOT NULL,
-            role TEXT DEFAULT 'Employee',
-            permissions TEXT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            created_by TEXT DEFAULT 'system',
-            active INTEGER DEFAULT 1,
-            pending_password TEXT DEFAULT '',
-            reset_requested_at DATETIME NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS gas_vendors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            mobile TEXT NOT NULL,
-            code TEXT DEFAULT '',
-            notes TEXT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS gas_complaints (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            consumer_number TEXT NULL,
-            consumer_name TEXT NOT NULL,
-            mobile TEXT NOT NULL,
-            address TEXT NOT NULL,
-            source TEXT NOT NULL,
-            complaint TEXT NOT NULL,
-            status TEXT DEFAULT 'Pending',
-            vendor_id INTEGER NULL,
-            vendor TEXT NULL,
-            signature_url TEXT DEFAULT '',
-            resolved_at DATETIME NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            deleted INTEGER DEFAULT 0,
-            deleted_at DATETIME NULL,
-            deleted_by TEXT DEFAULT '',
-            FOREIGN KEY (vendor_id) REFERENCES gas_vendors(id) ON DELETE SET NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS gas_settings (
-            setting_key TEXT PRIMARY KEY,
-            setting_value TEXT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS gas_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            action TEXT NOT NULL,
-            record_id INTEGER NULL,
-            username TEXT NOT NULL,
-            details TEXT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        INSERT OR IGNORE INTO gas_users (id, username, password, name, role, permissions, active) 
-        VALUES (1, 'admin', '21f25c8a583f2c993255e9008a9f332f486c6083ff113070490bb711003f259a', 'Administrator', 'Admin', '*', 1);
-
-        INSERT OR IGNORE INTO gas_settings (setting_key, setting_value) VALUES 
-        ('CompanyName', 'Shiv Shakti Hp Gas Agency'),
-        ('ComplaintSources', 'Office Phone,Delivery,Leakage,District Office,MO'),
-        ('AutoWhatsApp', 'false'),
-        ('VendorMessageTemplate', 'Dear {vendor},\nNew complaint assigned:\nID: {id}\nName: {name}\nMobile: {mobile}\nAddress: {address}\nDetails: {complaint}\nPlease resolve ASAP.');
-    ");
-}
-
-// Run migrations only once using settings flag to prevent database write locks on every request
-$schemaMigrated = false;
-try {
-    $schemaMigrated = $db->query("SELECT setting_value FROM gas_settings WHERE setting_key = 'schema_migrated_v1'")->fetchColumn() === '1';
-} catch (Exception $e) {}
-
-if (!$schemaMigrated) {
+if (!empty($_SESSION['agency_id']) && !empty($_SESSION['db_filename'])) {
     try {
-        $db->exec("ALTER TABLE gas_complaints ADD COLUMN tag TEXT DEFAULT ''");
-    } catch (Exception $e) {
-        // Column might already exist
+        $db_filename = preg_replace('/[^a-zA-Z0-9_\-.]/', '', $_SESSION['db_filename']);
+        $db = new PDO("sqlite:" . __DIR__ . "/" . $db_filename);
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        
+        // Enable busy timeout (wait up to 15 seconds for locks to clear) and WAL mode for concurrent read/write stability
+        $db->exec("PRAGMA busy_timeout = 15000;");
+        $db->exec("PRAGMA journal_mode = WAL;");
+    } catch (PDOException $e) {
+        die("Database Connection Error: " . $e->getMessage());
     }
+}
 
+if ($db) {
+    // Expand schema for new employee columns if not exist
+    try {
+        $db->exec("ALTER TABLE gas_users ADD COLUMN mobile TEXT NULL");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE gas_users ADD COLUMN profile_photo TEXT NULL");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE gas_consumers ADD COLUMN ekyc_status TEXT DEFAULT ''");
+    } catch (Exception $e) {}
+
+    // Multi-branch schema migrations
     try {
         $db->exec("
-             CREATE TABLE IF NOT EXISTS gas_consumers (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 consumer_number TEXT DEFAULT '',
-                 consumer_name TEXT NOT NULL,
-                 mobile TEXT DEFAULT '',
-                 address TEXT DEFAULT '',
-                 area TEXT DEFAULT '',
-                 connection_type TEXT DEFAULT '',
-                 status TEXT DEFAULT '',
-                 ekyc_status TEXT DEFAULT '',
-                 imported_at DATETIME DEFAULT CURRENT_TIMESTAMP
-             );
+            CREATE TABLE IF NOT EXISTS gas_branches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                code TEXT DEFAULT '',
+                brand TEXT DEFAULT 'HP',
+                address TEXT DEFAULT '',
+                mobile TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
         ");
-        $db->exec("INSERT OR IGNORE INTO gas_settings (setting_key, setting_value) VALUES ('schema_migrated_v1', '1')");
+    } catch (Exception $e) {}
+
+    try {
+        $count = (int)$db->query("SELECT COUNT(*) FROM gas_branches")->fetchColumn();
+        if ($count === 0) {
+            $db->exec("INSERT INTO gas_branches (id, name, code, brand, address) VALUES (1, 'Main Branch', '00000', 'HP', 'Main Office')");
+        }
+    } catch (Exception $e) {}
+    
+    // Default branch ID logic...
+    $default_branch_id = 1;
+    try {
+        $default_branch_id = (int)$db->query("SELECT id FROM gas_branches ORDER BY id ASC LIMIT 1")->fetchColumn() ?: 1;
+    } catch (Exception $e) {}
+
+    try {
+        $db->exec("ALTER TABLE gas_users ADD COLUMN branch_id INTEGER DEFAULT $default_branch_id");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE gas_complaints ADD COLUMN branch_id INTEGER DEFAULT $default_branch_id");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE gas_consumers ADD COLUMN branch_id INTEGER DEFAULT $default_branch_id");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("UPDATE gas_users SET branch_id = $default_branch_id WHERE branch_id IS NULL OR branch_id = 0");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("UPDATE gas_complaints SET branch_id = $default_branch_id WHERE branch_id IS NULL OR branch_id = 0");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("UPDATE gas_consumers SET branch_id = $default_branch_id WHERE branch_id IS NULL OR branch_id = 0");
+    } catch (Exception $e) {}
+
+    // Auto-run schema setup if tables don't exist
+    try {
+        $db->query("SELECT 1 FROM gas_users LIMIT 1");
     } catch (Exception $e) {
-        // Handle table creation error silently or log
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS gas_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                name TEXT NOT NULL,
+                role TEXT DEFAULT 'Employee',
+                permissions TEXT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_by TEXT DEFAULT 'system',
+                active INTEGER DEFAULT 1,
+                pending_password TEXT DEFAULT '',
+                reset_requested_at DATETIME NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS gas_vendors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                mobile TEXT NOT NULL,
+                code TEXT DEFAULT '',
+                notes TEXT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS gas_complaints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                consumer_number TEXT NULL,
+                consumer_name TEXT NOT NULL,
+                mobile TEXT NOT NULL,
+                address TEXT NOT NULL,
+                source TEXT NOT NULL,
+                complaint TEXT NOT NULL,
+                status TEXT DEFAULT 'Pending',
+                vendor_id INTEGER NULL,
+                vendor TEXT NULL,
+                signature_url TEXT DEFAULT '',
+                resolved_at DATETIME NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted INTEGER DEFAULT 0,
+                deleted_at DATETIME NULL,
+                deleted_by TEXT DEFAULT '',
+                FOREIGN KEY (vendor_id) REFERENCES gas_vendors(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS gas_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS gas_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,
+                record_id INTEGER NULL,
+                username TEXT NOT NULL,
+                details TEXT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT OR IGNORE INTO gas_users (id, username, password, name, role, permissions, active) 
+            VALUES (1, 'admin', '21f25c8a583f2c993255e9008a9f332f486c6083ff113070490bb711003f259a', 'Administrator', 'Admin', '*', 1);
+
+            INSERT OR IGNORE INTO gas_settings (setting_key, setting_value) VALUES 
+            ('CompanyName', 'Shiv Shakti Hp Gas Agency'),
+            ('ComplaintSources', 'Office Phone,Delivery,Leakage,District Office,MO'),
+            ('AutoWhatsApp', 'false'),
+            ('VendorMessageTemplate', 'Dear {vendor},\nNew complaint assigned:\nID: {id}\nName: {name}\nMobile: {mobile}\nAddress: {address}\nDetails: {complaint}\nPlease resolve ASAP.');
+        ");
     }
-}
 
-// v2 migrations: add connection_type and status to gas_consumers if they do not exist
-$schemaMigratedV2 = false;
-try {
-    $schemaMigratedV2 = $db->query("SELECT setting_value FROM gas_settings WHERE setting_key = 'schema_migrated_v2'")->fetchColumn() === '1';
-} catch (Exception $e) {}
+    // Run migrations only once using settings flag to prevent database write locks on every request
+    $schemaMigrated = false;
+    try {
+        $schemaMigrated = $db->query("SELECT setting_value FROM gas_settings WHERE setting_key = 'schema_migrated_v1'")->fetchColumn() === '1';
+    } catch (Exception $e) {}
 
-if (!$schemaMigratedV2) {
+    if (!$schemaMigrated) {
+        try {
+            $db->exec("ALTER TABLE gas_complaints ADD COLUMN tag TEXT DEFAULT ''");
+        } catch (Exception $e) {
+            // Column might already exist
+        }
+
+        try {
+            $db->exec("
+                 CREATE TABLE IF NOT EXISTS gas_consumers (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     consumer_number TEXT DEFAULT '',
+                     consumer_name TEXT NOT NULL,
+                     mobile TEXT DEFAULT '',
+                     address TEXT DEFAULT '',
+                     area TEXT DEFAULT '',
+                     connection_type TEXT DEFAULT '',
+                     status TEXT DEFAULT '',
+                     ekyc_status TEXT DEFAULT '',
+                     imported_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                 );
+            ");
+            $db->exec("INSERT OR IGNORE INTO gas_settings (setting_key, setting_value) VALUES ('schema_migrated_v1', '1')");
+        } catch (Exception $e) {
+            // Handle table creation error silently or log
+        }
+    }
+
+    // v2 migrations: add connection_type and status to gas_consumers if they do not exist
+    $schemaMigratedV2 = false;
     try {
-        $db->exec("ALTER TABLE gas_consumers ADD COLUMN connection_type TEXT DEFAULT ''");
+        $schemaMigratedV2 = $db->query("SELECT setting_value FROM gas_settings WHERE setting_key = 'schema_migrated_v2'")->fetchColumn() === '1';
     } catch (Exception $e) {}
-    try {
-        $db->exec("ALTER TABLE gas_consumers ADD COLUMN status TEXT DEFAULT ''");
-    } catch (Exception $e) {}
-    try {
-        $db->exec("INSERT OR IGNORE INTO gas_settings (setting_key, setting_value) VALUES ('schema_migrated_v2', '1')");
-    } catch (Exception $e) {}
+
+    if (!$schemaMigratedV2) {
+        try {
+            $db->exec("ALTER TABLE gas_consumers ADD COLUMN connection_type TEXT DEFAULT ''");
+        } catch (Exception $e) {}
+        try {
+            $db->exec("ALTER TABLE gas_consumers ADD COLUMN status TEXT DEFAULT ''");
+        } catch (Exception $e) {}
+        try {
+            $db->exec("INSERT OR IGNORE INTO gas_settings (setting_key, setting_value) VALUES ('schema_migrated_v2', '1')");
+        } catch (Exception $e) {}
+    }
 }
 
 
@@ -418,10 +426,10 @@ function renderLoginPage() {
         
         <form id="loginForm" onsubmit="handleLoginSubmit(event)">
           <div class="form-group">
-            <label>Username</label>
+            <label>Email Address</label>
             <div class="input-wrapper">
-              <i class="fas fa-user"></i>
-              <input type="text" id="username" required placeholder="admin">
+              <i class="fas fa-envelope"></i>
+              <input type="email" id="username" required placeholder="agency@example.com">
             </div>
           </div>
           <div class="form-group">
@@ -439,7 +447,7 @@ function renderLoginPage() {
         </div>
         
         <div class="info-box">
-          <i class="fas fa-info-circle"></i> Default Access: <b>admin</b> / <b>admin123</b>
+          SaaS Gas CRM Portal
         </div>
       </div>
 
@@ -502,7 +510,8 @@ function renderLoginPage() {
               btn.disabled = false;
               btn.innerText = 'Log In';
               if (res.success) {
-                window.location.reload();
+                if (res.redirect) window.location.href = res.redirect;
+                else window.location.reload();
               } else {
                 errText.innerText = res.message || 'Invalid credentials';
                 errBlock.style.display = 'flex';
@@ -581,26 +590,60 @@ $action = $_GET['action'] ?? ($_POST['action'] ?? '');
 if ($action) {
     header('Content-Type: application/json');
     if ($action === 'login') {
-        $u = trim($_POST['username'] ?? '');
+        $u = trim($_POST['username'] ?? ''); // Email Address from SaaS login
         $p = $_POST['password'] ?? '';
-        $hashed = hashPassword($p);
         
-        $stmt = $db->prepare("SELECT * FROM gas_users WHERE username = :u AND password = :p AND active = 1 LIMIT 1");
-        $stmt->execute(['u' => $u, 'p' => $hashed]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row) {
-            $_SESSION['gas_user_id'] = $row['id'];
-            $_SESSION['gas_user'] = [
-                'id' => $row['id'],
-                'username' => $row['username'],
-                'name' => $row['name'],
-                'role' => $row['role'],
-                'active' => 1
-            ];
-            $_SESSION['gas_role'] = $row['role'];
-            echo json_encode(['success' => true]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Invalid username or password']);
+        // Connect to Master DB
+        try {
+            $masterDb = new PDO("sqlite:" . __DIR__ . "/master.sqlite");
+            $masterDb->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            
+            $stmt = $masterDb->prepare("SELECT * FROM agencies WHERE email = ? LIMIT 1");
+            $stmt->execute([$u]);
+            $agency = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($agency && password_verify($p, $agency['password_hash'])) {
+                // Set SaaS session
+                $_SESSION['agency_id'] = $agency['id'];
+                $_SESSION['db_filename'] = $agency['db_filename'];
+                $_SESSION['agency_name'] = $agency['agency_name'];
+                
+                // Connect to local agency DB
+                $localDb = new PDO("sqlite:" . __DIR__ . "/" . $agency['db_filename']);
+                $localDb->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                
+                // If gas_users exists but is empty (e.g. from an empty template), insert the default admin user
+                try {
+                    $count = (int)$localDb->query("SELECT COUNT(*) FROM gas_users")->fetchColumn();
+                    if ($count === 0) {
+                        $localDb->exec("INSERT OR IGNORE INTO gas_users (id, username, password, name, role, permissions, active) VALUES (1, 'admin', '21f25c8a583f2c993255e9008a9f332f486c6083ff113070490bb711003f259a', 'Administrator', 'Admin', '*', 1)");
+                    }
+                } catch (Exception $e) {}
+
+                // Agency Owners log in as 'admin' in the local DB
+                $stmt = $localDb->prepare("SELECT * FROM gas_users WHERE username = 'admin' AND active = 1 LIMIT 1");
+                $stmt->execute();
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($row) {
+                    $_SESSION['gas_user_id'] = $row['id'];
+                    $_SESSION['gas_user'] = [
+                        'id' => $row['id'],
+                        'username' => $row['username'],
+                        'name' => $row['name'],
+                        'role' => $row['role'],
+                        'active' => 1
+                    ];
+                    $_SESSION['gas_role'] = $row['role'];
+                    echo json_encode(['success' => true]);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Admin user not found in local database']);
+                }
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Invalid email or password']);
+            }
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => 'Master DB Error: ' . $e->getMessage()]);
         }
         exit();
     }
@@ -2023,6 +2066,10 @@ if ($action) {
                 $settings[$r['setting_key']] = $r['setting_value'];
             }
 
+            // Sources
+            $sources = isset($settings['ComplaintSources']) ? array_map('trim', explode(',', $settings['ComplaintSources'])) : ['Office Phone','Delivery','Leakage','District Office','MO'];
+            $sources = array_values(array_filter($sources));
+
             // Network config (written by start.js)
             $network_config = [];
             $net_cfg_path = __DIR__ . '/network_config.json';
@@ -2036,12 +2083,12 @@ if ($action) {
                 $server_port = $_SERVER['SERVER_PORT'] ?? 8000;
                 $network_config = [
                     'ip'   => $server_ip,
-                    'port' => $server_port,
+                    'port' => (int)$server_port,
                     'url'  => "http://{$server_ip}:{$server_port}"
                 ];
             }
 
-            echo json_encode(['success' => true, 'settings' => $settings, 'sources' => array_values($sources), 'network' => $network_config]);
+            echo json_encode(['success' => true, 'settings' => $settings, 'sources' => $sources, 'network' => $network_config]);
             break;
 
         case 'save_branding':
@@ -2287,11 +2334,14 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       color: var(--text-main);
       margin: 0;
       padding: 0;
+      overflow-x: hidden;
     }
 
     .app-container {
       display: flex;
       min-height: 100vh;
+      max-width: 100vw;
+      overflow-x: hidden;
     }
 
     /* Sidebar Styling */
@@ -2537,21 +2587,29 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
     .main-content {
       flex: 1;
       margin-left: var(--sidebar-width);
-      padding: 2.5rem;
+      padding: 2rem 1.5rem;
       box-sizing: border-box;
       transition: margin-left 0.3s ease;
       min-height: 100vh;
+      max-width: calc(100vw - var(--sidebar-width));
+      overflow-x: hidden;
+      min-width: 0;
     }
 
     .sidebar.collapsed + .main-content {
       margin-left: 78px;
+      max-width: calc(100vw - 78px);
     }
 
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      width: 100%;
+      box-sizing: border-box;
     }
 
     .page-title h1 {
@@ -2573,27 +2631,34 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
       overflow: hidden;
+      width: 100%;
+      box-sizing: border-box;
+      min-width: 0;
     }
 
     /* Statistics Widgets */
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr));
+      gap: 1rem;
       margin-bottom: 2rem;
+      width: 100%;
+      box-sizing: border-box;
     }
 
     .stat-card {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
-      padding: 1.5rem;
+      padding: 1.25rem 1rem;
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: 0.75rem;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+      min-width: 0;
+      box-sizing: border-box;
     }
 
     .stat-icon {
@@ -2935,9 +3000,21 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       .sidebar.collapsed { width: 78px; }
       .sidebar.collapsed .sidebar-brand,
       .sidebar.collapsed .nav-item span { opacity: 0; width: 0; overflow: hidden; }
-      .sidebar.collapsed + .main-content { margin-left: 78px; }
+      .sidebar.collapsed + .main-content { margin-left: 78px; max-width: calc(100vw - 78px); }
       .bottom-nav { display: none !important; }
       .mobile-fab { display: none !important; }
+    }
+
+    /* ---- Medium screens: compact layout to prevent overflow ---- */
+    @media (min-width: 992px) and (max-width: 1280px) {
+      :root { --sidebar-width: 200px; }
+      .main-content { padding: 1.25rem 1rem; }
+      .stats-grid { grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr)); gap: 0.75rem; }
+      .stat-card { padding: 1rem 0.75rem; }
+      .stat-icon { width: 38px; height: 38px; font-size: 1.1rem; flex-shrink: 0; }
+      .stat-info .value { font-size: 1.25rem; }
+      .toolbar { padding: 0.75rem 1rem; }
+      header { margin-bottom: 1rem; }
     }
 
     /* ---- Tablet / Mobile: slide-in sidebar ---- */
@@ -7017,22 +7094,29 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
     function loadSettings() {
       showLoading(true);
       fetch('?action=get_settings')
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) throw new Error(`Server error: ${res.status}`);
+          return res.json();
+        })
         .then(res => {
           showLoading(false);
-          if (res.success) {
+          if (!res.success) {
+            console.warn('Settings load failed:', res.error);
+            return;
+          }
+          try {
             // Populate CRM Company Profile edit inputs
-            const co = State.company;
-            const nameInp = document.getElementById('editCompanyName');
-            const addrInp = document.getElementById('editCompanyAddr');
+            const co = State.company || {};
+            const nameInp   = document.getElementById('editCompanyName');
+            const addrInp   = document.getElementById('editCompanyAddr');
             const mobileInp = document.getElementById('editCompanyMobile');
-            const emailInp = document.getElementById('editCompanyEmail');
-            
-            if (nameInp) nameInp.value = co.company_name || '';
-            if (addrInp) addrInp.value = co.company_address || '';
-            if (mobileInp) mobileInp.value = co.company_mobile || '';
-            if (emailInp) emailInp.value = co.company_email || '';
-            
+            const emailInp  = document.getElementById('editCompanyEmail');
+
+            if (nameInp)   nameInp.value   = co.company_name    || '';
+            if (addrInp)   addrInp.value   = co.company_address || '';
+            if (mobileInp) mobileInp.value = co.company_mobile  || '';
+            if (emailInp)  emailInp.value  = co.company_email   || '';
+
             const logoPreview = document.getElementById('editLogoPreview');
             if (logoPreview) {
               if (co.company_logo && co.company_logo !== 'default-logo.png') {
@@ -7043,30 +7127,49 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
                 State.tempLogoData = 'default-logo.png';
               }
             }
-            
-            document.getElementById('setAutoWA').checked = (res.settings.AutoWhatsApp === 'true');
-            
-            // Populate Multi-Branch radio settings
-            const multiBranchEnabled = (res.settings.MultiBranchEnabled === '1');
-            document.getElementById('multiBranchEnabled').checked = multiBranchEnabled;
-            document.getElementById('multiBranchDisabled').checked = !multiBranchEnabled;
+
+            const settings = res.settings || {};
+            const autoWA = document.getElementById('setAutoWA');
+            if (autoWA) autoWA.checked = (settings.AutoWhatsApp === 'true');
+
+            // Multi-Branch radio settings
+            const multiBranchEnabled = (settings.MultiBranchEnabled === '1');
+            const mbEn = document.getElementById('multiBranchEnabled');
+            const mbDis = document.getElementById('multiBranchDisabled');
+            if (mbEn)  mbEn.checked  = multiBranchEnabled;
+            if (mbDis) mbDis.checked = !multiBranchEnabled;
             toggleMultiBranchSettings(multiBranchEnabled);
 
-            document.getElementById('setSources').value = res.sources.join('\n');
+            const srcEl = document.getElementById('setSources');
+            if (srcEl) srcEl.value = (res.sources || []).join('\n');
             renderSourcesTags();
-            document.getElementById('setTemplate').value = res.settings.VendorMessageTemplate || '';
+
+            const tmplEl = document.getElementById('setTemplate');
+            if (tmplEl) tmplEl.value = settings.VendorMessageTemplate || '';
 
             // Populate Network Info card
-            if (res.network) {
-              const n = res.network;
-              const ipEl   = document.getElementById('netInfoIP');
-              const portEl = document.getElementById('netInfoPort');
-              const urlEl  = document.getElementById('netInfoURL');
-              if (ipEl)   ipEl.textContent   = n.ip   || '—';
-              if (portEl) portEl.textContent = n.port || '—';
-              if (urlEl)  urlEl.textContent  = n.url  || '—';
-              State._networkURL = n.url || '';
-            }
+            const n = res.network || {};
+            const ipEl   = document.getElementById('netInfoIP');
+            const portEl = document.getElementById('netInfoPort');
+            const urlEl  = document.getElementById('netInfoURL');
+            // Fallback to current window host if network config not yet generated
+            const fallbackHost = window.location.hostname;
+            const fallbackPort = window.location.port || '8000';
+            const fallbackURL  = `${window.location.protocol}//${fallbackHost}:${fallbackPort}`;
+            if (ipEl)   ipEl.textContent   = n.ip   || fallbackHost;
+            if (portEl) portEl.textContent = n.port || fallbackPort;
+            if (urlEl)  urlEl.textContent  = n.url  || fallbackURL;
+            State._networkURL = n.url || fallbackURL;
+          } catch(e) {
+            console.error('Error populating settings fields:', e);
+          }
+        })
+        .catch(err => {
+          showLoading(false);
+          console.error('loadSettings failed:', err);
+          // Show a non-blocking toast so the page is still usable
+          if (window.Swal) {
+            Swal.fire({ toast: true, icon: 'warning', title: 'Settings load failed — check server connection.', position: 'top-end', timer: 3500, showConfirmButton: false });
           }
         });
     }
