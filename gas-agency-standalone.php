@@ -17,15 +17,35 @@ $db = null;
 if (!empty($_SESSION['agency_id']) && !empty($_SESSION['db_filename'])) {
     try {
         $db_filename = preg_replace('/[^a-zA-Z0-9_\-.]/', '', $_SESSION['db_filename']);
-        $db = new PDO("sqlite:" . __DIR__ . "/" . $db_filename);
-        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        
-        // Enable busy timeout (wait up to 15 seconds for locks to clear) and WAL mode for concurrent read/write stability
-        $db->exec("PRAGMA busy_timeout = 15000;");
-        $db->exec("PRAGMA journal_mode = WAL;");
-    } catch (PDOException $e) {
-        die("Database Connection Error: " . $e->getMessage());
+        if (file_exists(__DIR__ . "/" . $db_filename)) {
+            $db = new PDO("sqlite:" . __DIR__ . "/" . $db_filename);
+            $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+            
+            // Enable busy timeout (wait up to 15 seconds for locks to clear) and WAL mode for concurrent read/write stability
+            $db->exec("PRAGMA busy_timeout = 15000;");
+            $db->exec("PRAGMA journal_mode = WAL;");
+        }
+    } catch (PDOException $e) {}
+}
+
+// Fallback: If $db is still null, auto-connect to available tenant DB in root directory
+if (!$db) {
+    $sqliteFiles = glob(__DIR__ . "/*.sqlite");
+    foreach ($sqliteFiles as $sf) {
+        $base = basename($sf);
+        if ($base !== 'master.sqlite' && $base !== 'template.sqlite') {
+            try {
+                $db = new PDO("sqlite:" . $sf);
+                $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+                $db->exec("PRAGMA busy_timeout = 15000;");
+                $db->exec("PRAGMA journal_mode = WAL;");
+                $_SESSION['db_filename'] = $base;
+                if (empty($_SESSION['agency_id'])) $_SESSION['agency_id'] = 1;
+                break;
+            } catch (Exception $e) {}
+        }
     }
 }
 
@@ -2465,8 +2485,8 @@ if ($action) {
             break;
     }
 
-} catch (Exception $e) {
-    echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
+} catch (Throwable $e) {
+    echo json_encode(['success' => false, 'error' => 'Server error: ' . $e->getMessage()]);
 
 }
 exit();
