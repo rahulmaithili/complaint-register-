@@ -875,6 +875,11 @@ if ($action) {
                 $statsWhere .= " AND branch_id = :branch_id";
                 $statsParams['branch_id'] = $activeBranchId;
             }
+            if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
+                $statsWhere .= " AND (vendor_id = :v_id OR vendor = :v_name)";
+                $statsParams['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
+                $statsParams['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
+            }
 
             $statsStmt = $db->prepare("
                 SELECT 
@@ -895,6 +900,11 @@ if ($action) {
             if ($activeBranchId > 0) {
                 $compWhere .= " AND branch_id = :branch_id";
                 $compParams['branch_id'] = $activeBranchId;
+            }
+            if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
+                $compWhere .= " AND (vendor_id = :v_id OR vendor = :v_name)";
+                $compParams['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
+                $compParams['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
             }
 
             $compStmt = $db->prepare("
@@ -960,6 +970,12 @@ if ($action) {
                 $params['branch_id'] = $activeBranchId;
             }
 
+            if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
+                $whereClauses[] = "(vendor_id = :v_id OR vendor = :v_name)";
+                $params['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
+                $params['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
+            }
+
             if ($status) {
                 $whereClauses[] = "status = :status";
                 $params['status'] = $status;
@@ -1008,6 +1024,11 @@ if ($action) {
             if ($activeBranchId > 0) {
                 $statsWhere .= " AND branch_id = :branch_id";
                 $statsParams['branch_id'] = $activeBranchId;
+            }
+            if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
+                $statsWhere .= " AND (vendor_id = :v_id OR vendor = :v_name)";
+                $statsParams['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
+                $statsParams['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
             }
             
             $statsStmt = $db->prepare("
@@ -1817,6 +1838,11 @@ if ($action) {
             if ($activeBranchId > 0) {
                 $where .= " AND branch_id = :branch_id";
                 $params['branch_id'] = $activeBranchId;
+            }
+            if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
+                $where .= " AND (vendor_id = :v_id OR vendor = :v_name)";
+                $params['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
+                $params['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
             }
 
             // 1. Status distribution
@@ -3981,46 +4007,110 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
         </div>
       </header>
 
-      <!-- VIEW 1: ACTIVE COMPLAINTS REGISTRY -->
+      <!-- VIEW 1: ACTIVE COMPLAINTS REGISTRY / VENDOR PORTAL -->
       <section id="view-dashboard" class="view-section active">
         <div class="dashboard-welcome">
-          <div><span class="dashboard-kicker">Operations overview</span><h2>Good to see you, <?= htmlspecialchars($user['name']) ?></h2><p>Track complaints, dispatch work and service performance.</p></div>
-          <?php if (($user['role'] ?? '') !== 'Vendor'): ?>
-            <button class="btn btn-primary" onclick="openAddComplaintModal()"><i class="fas fa-plus"></i> New Complaint</button>
+          <?php if (($user['role'] ?? '') === 'Vendor'): ?>
+            <div>
+              <span class="dashboard-kicker">Delivery Boy Portal</span>
+              <h2>Welcome back, <?= htmlspecialchars($user['name']) ?> 👋</h2>
+              <p>Manage your assigned gas deliveries, optimized routes & completion history.</p>
+            </div>
+            <button class="btn btn-primary" onclick="optimizeVendorRoute()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border:none; box-shadow: 0 4px 12px rgba(16,185,129,0.3);">
+              <i class="fas fa-route"></i> 🗺️ Route Optimizer
+            </button>
           <?php else: ?>
-            <button class="btn btn-primary" onclick="optimizeVendorRoute()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border:none; box-shadow: 0 4px 12px rgba(16,185,129,0.3);"><i class="fas fa-route"></i> 🗺️ Route Optimizer</button>
+            <div>
+              <span class="dashboard-kicker">Operations overview</span>
+              <h2>Good to see you, <?= htmlspecialchars($user['name']) ?></h2>
+              <p>Track complaints, dispatch work and service performance.</p>
+            </div>
+            <button class="btn btn-primary" onclick="openAddComplaintModal()"><i class="fas fa-plus"></i> New Complaint</button>
           <?php endif; ?>
         </div>
         <div class="dashboard-kpis">
-          <div class="dashboard-kpi kpi-blue"><i class="fas fa-layer-group"></i><span>Total Cases</span><strong id="dashTotal">0</strong><small>All active records</small></div>
-          <div class="dashboard-kpi kpi-amber"><i class="fas fa-hourglass-half"></i><span>Pending</span><strong id="dashPending">0</strong><small>Need attention</small></div>
-          <div class="dashboard-kpi kpi-cyan"><i class="fas fa-truck"></i><span>In Progress</span><strong id="dashProgress">0</strong><small>With technicians</small></div>
-          <div class="dashboard-kpi kpi-green"><i class="fas fa-check-circle"></i><span>Resolved</span><strong id="dashResolved">0</strong><small>Completed cases</small></div>
-          <div class="dashboard-kpi kpi-dark"><i class="fas fa-calendar-day"></i><span>Today New</span><strong id="dashToday">0</strong><small>Registered today</small></div>
+          <div class="dashboard-kpi kpi-blue">
+            <i class="fas fa-layer-group"></i>
+            <span><?= ($user['role'] ?? '') === 'Vendor' ? 'My Total Assigned' : 'Total Cases' ?></span>
+            <strong id="dashTotal">0</strong>
+            <small><?= ($user['role'] ?? '') === 'Vendor' ? 'Assigned to me' : 'All active records' ?></small>
+          </div>
+          <div class="dashboard-kpi kpi-amber">
+            <i class="fas fa-hourglass-half"></i>
+            <span>Pending</span>
+            <strong id="dashPending">0</strong>
+            <small><?= ($user['role'] ?? '') === 'Vendor' ? 'Need delivery' : 'Need attention' ?></small>
+          </div>
+          <div class="dashboard-kpi kpi-cyan">
+            <i class="fas fa-truck"></i>
+            <span>In Progress</span>
+            <strong id="dashProgress">0</strong>
+            <small><?= ($user['role'] ?? '') === 'Vendor' ? 'In-transit' : 'With technicians' ?></small>
+          </div>
+          <div class="dashboard-kpi kpi-green">
+            <i class="fas fa-check-circle"></i>
+            <span><?= ($user['role'] ?? '') === 'Vendor' ? 'Total Delivered' : 'Resolved' ?></span>
+            <strong id="dashResolved">0</strong>
+            <small><?= ($user['role'] ?? '') === 'Vendor' ? 'Completed by me' : 'Completed cases' ?></small>
+          </div>
+          <div class="dashboard-kpi kpi-dark">
+            <i class="fas fa-calendar-day"></i>
+            <span><?= ($user['role'] ?? '') === 'Vendor' ? 'Assigned Today' : 'Today New' ?></span>
+            <strong id="dashToday">0</strong>
+            <small><?= ($user['role'] ?? '') === 'Vendor' ? 'New today' : 'Registered today' ?></small>
+          </div>
         </div>
         <div class="dashboard-columns">
           <div class="content-card dashboard-panel">
-            <div class="dashboard-panel-head"><div><span class="dashboard-kicker">Live workload</span><h3>Complaint collection</h3></div><button class="btn btn-outline btn-sm" onclick="switchView('active-registry', null)">View all <i class="fas fa-arrow-right"></i></button></div>
+            <div class="dashboard-panel-head">
+              <div>
+                <span class="dashboard-kicker"><?= ($user['role'] ?? '') === 'Vendor' ? 'Delivery Progress' : 'Live workload' ?></span>
+                <h3><?= ($user['role'] ?? '') === 'Vendor' ? 'My Delivery Workload' : 'Complaint collection' ?></h3>
+              </div>
+              <button class="btn btn-outline btn-sm" onclick="switchView('active-registry', null)"><?= ($user['role'] ?? '') === 'Vendor' ? 'My Deliveries ' : 'View all ' ?><i class="fas fa-arrow-right"></i></button>
+            </div>
             <div class="dashboard-progress-row"><span><i class="fas fa-clock"></i> Pending</span><strong id="dashPendingLabel">0</strong></div><div class="dashboard-progress"><i id="dashPendingBar"></i></div>
             <div class="dashboard-progress-row"><span><i class="fas fa-route"></i> In progress</span><strong id="dashProgressLabel">0</strong></div><div class="dashboard-progress"><i id="dashProgressBar"></i></div>
-            <div class="dashboard-progress-row"><span><i class="fas fa-check"></i> Resolved</span><strong id="dashResolvedLabel">0</strong></div><div class="dashboard-progress"><i id="dashResolvedBar"></i></div>
-            <div class="dashboard-total-line"><span>Resolution rate</span><strong id="dashRate">0%</strong></div>
+            <div class="dashboard-progress-row"><span><i class="fas fa-check"></i> Delivered</span><strong id="dashResolvedLabel">0</strong></div><div class="dashboard-progress"><i id="dashResolvedBar"></i></div>
+            <div class="dashboard-total-line"><span>Completion rate</span><strong id="dashRate">0%</strong></div>
           </div>
           <div class="content-card dashboard-panel">
-            <div class="dashboard-panel-head"><div><span class="dashboard-kicker">Shortcuts</span><h3>Operational actions</h3></div><i class="fas fa-bolt dashboard-bolt"></i></div>
+            <div class="dashboard-panel-head">
+              <div>
+                <span class="dashboard-kicker">Shortcuts</span>
+                <h3><?= ($user['role'] ?? '') === 'Vendor' ? 'Vendor Actions' : 'Operational actions' ?></h3>
+              </div>
+              <i class="fas fa-bolt dashboard-bolt"></i>
+            </div>
             <?php if (($user['role'] ?? '') !== 'Vendor'): ?>
               <button class="dashboard-action" onclick="openAddComplaintModal()"><i class="fas fa-file-circle-plus"></i><span><b>Register complaint</b><small>Create a new service case</small></span><i class="fas fa-chevron-right"></i></button>
+              <button class="dashboard-action" onclick="switchView('reports', null)"><i class="fas fa-print"></i><span><b>Dispatch sheets</b><small>Print technician trip lists</small></span><i class="fas fa-chevron-right"></i></button>
+              <button class="dashboard-action" onclick="switchView('analytics', null)"><i class="fas fa-chart-line"></i><span><b>Performance charts</b><small>Review service trends</small></span><i class="fas fa-chevron-right"></i></button>
             <?php else: ?>
-              <button class="dashboard-action" onclick="optimizeVendorRoute()"><i class="fas fa-route"></i><span><b>🗺️ GPS Route Optimizer</b><small>Get Google Maps directions for open deliveries</small></span><i class="fas fa-chevron-right"></i></button>
+              <button class="dashboard-action" onclick="optimizeVendorRoute()"><i class="fas fa-route" style="color:#10b981;"></i><span><b>🗺️ GPS Route Optimizer</b><small>Get Google Maps directions for open deliveries</small></span><i class="fas fa-chevron-right"></i></button>
+              <button class="dashboard-action" onclick="switchView('active-registry', null)"><i class="fas fa-truck-loading" style="color:#06b6d4;"></i><span><b>📋 My Active Deliveries</b><small>View pending delivery list & action buttons</small></span><i class="fas fa-chevron-right"></i></button>
+              <button class="dashboard-action" onclick="switchView('reports', null)"><i class="fas fa-file-invoice" style="color:#3b82f6;"></i><span><b>📜 Trip Manifest Sheet</b><small>View & print today's trip dispatch sheet</small></span><i class="fas fa-chevron-right"></i></button>
+              <button class="dashboard-action" onclick="switchView('history', null)"><i class="fas fa-history" style="color:#8b5cf6;"></i><span><b>✅ Delivery History</b><small>View all past completed deliveries</small></span><i class="fas fa-chevron-right"></i></button>
             <?php endif; ?>
-            <button class="dashboard-action" onclick="switchView('reports', null)"><i class="fas fa-print"></i><span><b>Dispatch sheets</b><small>Print technician trip lists</small></span><i class="fas fa-chevron-right"></i></button>
-            <button class="dashboard-action" onclick="switchView('analytics', null)"><i class="fas fa-chart-line"></i><span><b>Performance charts</b><small>Review service trends</small></span><i class="fas fa-chevron-right"></i></button>
           </div>
         </div>
-        <div class="content-card dashboard-panel dashboard-recent"><div class="dashboard-panel-head"><div><span class="dashboard-kicker">Queue monitor</span><h3>Recent service activity</h3></div><span class="dashboard-live"><i></i> LIVE</span></div><div class="dashboard-activity"><div><i class="fas fa-inbox"></i><span>Open cases waiting for action</span><strong id="dashOpenCases">0</strong></div><div><i class="fas fa-user-check"></i><span>Cases currently assigned</span><strong id="dashAssignedCases">0</strong></div><div><i class="fas fa-calendar-check"></i><span>Resolved cases in records</span><strong id="dashResolvedCases">0</strong></div></div></div>
+        <div class="content-card dashboard-panel dashboard-recent">
+          <div class="dashboard-panel-head">
+            <div>
+              <span class="dashboard-kicker"><?= ($user['role'] ?? '') === 'Vendor' ? 'My Delivery Summary' : 'Queue monitor' ?></span>
+              <h3><?= ($user['role'] ?? '') === 'Vendor' ? 'Delivery Activity Overview' : 'Recent service activity' ?></h3>
+            </div>
+            <span class="dashboard-live"><i></i> LIVE</span>
+          </div>
+          <div class="dashboard-activity">
+            <div><i class="fas fa-inbox"></i><span><?= ($user['role'] ?? '') === 'Vendor' ? 'Pending deliveries waiting' : 'Open cases waiting for action' ?></span><strong id="dashOpenCases">0</strong></div>
+            <div><i class="fas fa-user-check"></i><span><?= ($user['role'] ?? '') === 'Vendor' ? 'Deliveries in-transit' : 'Cases currently assigned' ?></span><strong id="dashAssignedCases">0</strong></div>
+            <div><i class="fas fa-calendar-check"></i><span><?= ($user['role'] ?? '') === 'Vendor' ? 'Total completed deliveries' : 'Resolved cases in records' ?></span><strong id="dashResolvedCases">0</strong></div>
+          </div>
+        </div>
         <div class="dashboard-chart-grid">
-          <div class="content-card dashboard-panel"><div class="dashboard-panel-head"><div><span class="dashboard-kicker">Distribution</span><h3>Complaint status</h3></div></div><div class="dashboard-chart"><canvas id="dashboardStatusChart"></canvas></div></div>
-          <div class="content-card dashboard-panel"><div class="dashboard-panel-head"><div><span class="dashboard-kicker">Last 7 days</span><h3>Registration trend</h3></div></div><div class="dashboard-chart"><canvas id="dashboardTrendChart"></canvas></div></div>
+          <div class="content-card dashboard-panel"><div class="dashboard-panel-head"><div><span class="dashboard-kicker"><?= ($user['role'] ?? '') === 'Vendor' ? 'My Delivery Breakdown' : 'Distribution' ?></span><h3><?= ($user['role'] ?? '') === 'Vendor' ? 'Delivery Status' : 'Complaint status' ?></h3></div></div><div class="dashboard-chart"><canvas id="dashboardStatusChart"></canvas></div></div>
+          <div class="content-card dashboard-panel"><div class="dashboard-panel-head"><div><span class="dashboard-kicker"><?= ($user['role'] ?? '') === 'Vendor' ? 'My 7-Day Trend' : 'Last 7 days' ?></span><h3><?= ($user['role'] ?? '') === 'Vendor' ? 'Daily Delivery Trend' : 'Registration trend' ?></h3></div></div><div class="dashboard-chart"><canvas id="dashboardTrendChart"></canvas></div></div>
         </div>
       </section>
 
@@ -5292,12 +5382,13 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       setBottomNav(viewName);
 
       // Update titles
+      const isVendor = State.user && State.user.role === 'Vendor';
       const viewTitleMap = {
-        'dashboard': ['Dashboard', 'Overview of complaints and operations'],
-        'active-registry': ['Active Registry', 'Track pending complaints'],
-        'history': ['History Log', 'Audit closed complaints'],
+        'dashboard': isVendor ? ['Vendor Delivery Portal', 'My assigned delivery workload & status'] : ['Dashboard', 'Overview of complaints and operations'],
+        'active-registry': isVendor ? ['My Active Deliveries', 'Pending delivery cases assigned to me'] : ['Active Registry', 'Track pending complaints'],
+        'history': isVendor ? ['Delivery History', 'My completed & resolved deliveries'] : ['History Log', 'Audit closed complaints'],
         'vendors': ['Vendors Directory', 'Manage service providers'],
-        'reports': ['Trip Sheets & Dispatch', 'Print checklists & update technicians'],
+        'reports': isVendor ? ['Trip Manifest', 'My daily trip sheet & dispatch list'] : ['Trip Sheets & Dispatch', 'Print checklists & update technicians'],
         'analytics': ['Performance Charts', 'Inspect metrics and distribution'],
         'export': ['CSV Export Utility', 'Extract records as CSV file'],
         'employees': ['Employee Accounts', 'Manage login profiles'],
