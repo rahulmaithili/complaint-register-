@@ -5708,7 +5708,6 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       setBottomNav(viewName);
 
       // Update titles
-      const isVendor = State.user && State.user.role === 'Vendor';
       const viewTitleMap = {
         'dashboard': isVendor ? ['Vendor Delivery Portal', 'My assigned delivery workload & status'] : ['Dashboard', 'Overview of complaints and operations'],
         'active-registry': isVendor ? ['My Active Deliveries', 'Pending delivery cases assigned to me'] : ['Active Registry', 'Track pending complaints'],
