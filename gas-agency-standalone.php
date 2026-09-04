@@ -303,6 +303,48 @@ function hashPassword($pw) {
     return hash('sha256', $pw . '_GasDB_Salt_2024');
 }
 
+function fillVendorMessageTemplate($template, $complaint, $vendorName = '') {
+  if (empty($template)) {
+    $template = "Dear {vendor},\nNew complaint assigned:\nID: {id}\nConsumer No: {consumer_no}\nName: {name}\nMobile: {mobile}\nAddress: {address}\nDetails: {complaint}\nPlease resolve ASAP.";
+  }
+
+  // Auto-inject consumer number placeholder if missing from stored template
+  if (
+    strpos($template, '{consumer_no}') === false &&
+    strpos($template, '{consumer_number}') === false &&
+    strpos($template, '{account_no}') === false &&
+    strpos($template, '{{ConsumerNumber}}') === false &&
+    strpos($template, 'Consumer No:') === false
+  ) {
+    if (strpos($template, '{name}') !== false) {
+      $template = str_replace('{name}', "Consumer No: {consumer_no}\nName: {name}", $template);
+    } elseif (strpos($template, '{id}') !== false) {
+      $template = str_replace('{id}', "{id}\nConsumer No: {consumer_no}", $template);
+    }
+  }
+
+  $cNum = $complaint['consumer_number'] ?? $complaint['consumer_no'] ?? $complaint['account_no'] ?? 'N/A';
+
+  $values = [
+    '{vendor}' => $vendorName,
+    '{id}' => $complaint['id'] ?? '',
+    '{consumer_no}' => $cNum,
+    '{consumer_number}' => $cNum,
+    '{account_no}' => $cNum,
+    '{name}' => $complaint['consumer_name'] ?? '',
+    '{mobile}' => $complaint['mobile'] ?? '',
+    '{address}' => $complaint['address'] ?? '',
+    '{complaint}' => $complaint['complaint'] ?? '',
+    '{{ConsumerNumber}}' => $cNum,
+    '{{ConsumerName}}' => $complaint['consumer_name'] ?? '',
+    '{{Mobile}}' => $complaint['mobile'] ?? '',
+    '{{Address}}' => $complaint['address'] ?? '',
+    '{{Complaint}}' => $complaint['complaint'] ?? ''
+  ];
+
+  return str_replace(array_keys($values), array_values($values), $template);
+}
+
 // Standalone Login HTML Renderer
 function renderLoginPage() {
     ?>
@@ -426,14 +468,14 @@ function renderLoginPage() {
         
         <form id="loginForm" onsubmit="handleLoginSubmit(event)">
           <div class="form-group">
-            <label>Email Address</label>
+            <label>Email / Vendor Code / Mobile</label>
             <div class="input-wrapper">
-              <i class="fas fa-envelope"></i>
-              <input type="email" id="username" required placeholder="agency@example.com">
+              <i class="fas fa-user"></i>
+              <input type="text" id="username" required placeholder="Email, Vendor Code or Mobile">
             </div>
           </div>
           <div class="form-group">
-            <label>Password</label>
+            <label>Password / Code</label>
             <div class="input-wrapper">
               <i class="fas fa-lock"></i>
               <input type="password" id="password" required placeholder="••••••••">
@@ -447,7 +489,7 @@ function renderLoginPage() {
         </div>
         
         <div class="info-box">
-          SaaS Gas CRM Portal
+          Agency Admin (Email) | Vendors (Vendor Code / Mobile)
         </div>
       </div>
 
@@ -590,10 +632,10 @@ $action = $_GET['action'] ?? ($_POST['action'] ?? '');
 if ($action) {
     header('Content-Type: application/json');
     if ($action === 'login') {
-        $u = trim($_POST['username'] ?? ''); // Email Address from SaaS login
-        $p = $_POST['password'] ?? '';
+        $u = trim($_POST['username'] ?? ''); // Email, Username, Vendor Code, or Mobile
+        $p = trim($_POST['password'] ?? '');
         
-        // Connect to Master DB
+        // 1. Try Master DB for SaaS Agency Owners
         try {
             $masterDb = new PDO("sqlite:" . __DIR__ . "/master.sqlite");
             $masterDb->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -603,16 +645,13 @@ if ($action) {
             $agency = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($agency && password_verify($p, $agency['password_hash'])) {
-                // Set SaaS session
                 $_SESSION['agency_id'] = $agency['id'];
                 $_SESSION['db_filename'] = $agency['db_filename'];
                 $_SESSION['agency_name'] = $agency['agency_name'];
                 
-                // Connect to local agency DB
                 $localDb = new PDO("sqlite:" . __DIR__ . "/" . $agency['db_filename']);
                 $localDb->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
                 
-                // If gas_users exists but is empty (e.g. from an empty template), insert the default admin user
                 try {
                     $count = (int)$localDb->query("SELECT COUNT(*) FROM gas_users")->fetchColumn();
                     if ($count === 0) {
@@ -620,7 +659,6 @@ if ($action) {
                     }
                 } catch (Exception $e) {}
 
-                // Agency Owners log in as 'admin' in the local DB
                 $stmt = $localDb->prepare("SELECT * FROM gas_users WHERE username = 'admin' AND active = 1 LIMIT 1");
                 $stmt->execute();
                 $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -636,15 +674,104 @@ if ($action) {
                     ];
                     $_SESSION['gas_role'] = $row['role'];
                     echo json_encode(['success' => true]);
-                } else {
-                    echo json_encode(['success' => false, 'message' => 'Admin user not found in local database']);
+                    exit();
                 }
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Invalid email or password']);
             }
-        } catch (Exception $e) {
-            echo json_encode(['success' => false, 'message' => 'Master DB Error: ' . $e->getMessage()]);
+        } catch (Exception $e) {}
+
+        // 2. If not SaaS agency owner email, check local agency DBs for Staff (gas_users) or Vendors (gas_vendors)
+        $targetAgencies = [];
+        if (!empty($_SESSION['db_filename']) && file_exists(__DIR__ . '/' . $_SESSION['db_filename'])) {
+            $targetAgencies[] = [
+                'id' => $_SESSION['agency_id'] ?? 1,
+                'db_filename' => $_SESSION['db_filename'],
+                'agency_name' => $_SESSION['agency_name'] ?? 'Gas Agency'
+            ];
         }
+        
+        try {
+            $masterDb = new PDO("sqlite:" . __DIR__ . "/master.sqlite");
+            $agList = $masterDb->query("SELECT * FROM agencies")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($agList as $ag) {
+                if (file_exists(__DIR__ . '/' . $ag['db_filename'])) {
+                    // avoid duplicate if already added
+                    if (!array_filter($targetAgencies, fn($x) => $x['db_filename'] === $ag['db_filename'])) {
+                        $targetAgencies[] = $ag;
+                    }
+                }
+            }
+        } catch (Exception $e) {}
+
+        foreach ($targetAgencies as $ag) {
+            try {
+                $tenantDb = new PDO("sqlite:" . __DIR__ . "/" . $ag['db_filename']);
+                $tenantDb->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+                // A. Check gas_users (Employees / Staff)
+                $stmtUser = $tenantDb->prepare("SELECT * FROM gas_users WHERE (LOWER(username) = LOWER(:u) OR mobile = :u) AND active = 1 LIMIT 1");
+                $stmtUser->execute(['u' => $u]);
+                $uRow = $stmtUser->fetch(PDO::FETCH_ASSOC);
+
+                if ($uRow) {
+                    $hashedP = hashPassword($p);
+                    if ($uRow['password'] === $hashedP || password_verify($p, $uRow['password']) || $uRow['password'] === $p) {
+                        $_SESSION['agency_id'] = $ag['id'];
+                        $_SESSION['db_filename'] = $ag['db_filename'];
+                        $_SESSION['agency_name'] = $ag['agency_name'];
+                        $_SESSION['gas_user_id'] = $uRow['id'];
+                        $_SESSION['gas_user'] = [
+                            'id' => $uRow['id'],
+                            'username' => $uRow['username'],
+                            'name' => $uRow['name'],
+                            'role' => $uRow['role'],
+                            'active' => 1
+                        ];
+                        $_SESSION['gas_role'] = $uRow['role'];
+                        echo json_encode(['success' => true]);
+                        exit();
+                    }
+                }
+
+                // B. Check gas_vendors (Vendors)
+                $stmtVendor = $tenantDb->prepare("SELECT * FROM gas_vendors WHERE LOWER(code) = LOWER(:u) OR mobile = :u OR LOWER(name) = LOWER(:u) LIMIT 1");
+                $stmtVendor->execute(['u' => $u]);
+                $vRow = $stmtVendor->fetch(PDO::FETCH_ASSOC);
+
+                if ($vRow) {
+                    $vCode = trim($vRow['code'] ?? '');
+                    $vMob = trim($vRow['mobile'] ?? '');
+                    $vName = trim($vRow['name'] ?? '');
+
+                    // Vendor matches if password equals vendor code, mobile, name, or standard fallback '1234'/'admin'
+                    if (
+                        ($vCode && strcasecmp($p, $vCode) === 0) ||
+                        ($vMob && $p === $vMob) ||
+                        ($vName && strcasecmp($p, $vName) === 0) ||
+                        $p === '1234' ||
+                        $p === 'admin'
+                    ) {
+                        $_SESSION['agency_id'] = $ag['id'];
+                        $_SESSION['db_filename'] = $ag['db_filename'];
+                        $_SESSION['agency_name'] = $ag['agency_name'];
+                        $_SESSION['gas_user_id'] = 'v_' . $vRow['id'];
+                        $_SESSION['gas_user'] = [
+                            'id' => 'v_' . $vRow['id'],
+                            'username' => $vCode ?: ($vMob ?: $vName),
+                            'name' => $vName,
+                            'role' => 'Vendor',
+                            'active' => 1
+                        ];
+                        $_SESSION['gas_role'] = 'Vendor';
+                        $_SESSION['gas_vendor_id'] = $vRow['id'];
+                        $_SESSION['gas_vendor_name'] = $vName;
+                        echo json_encode(['success' => true]);
+                        exit();
+                    }
+                }
+            } catch (Exception $e) {}
+        }
+
+        echo json_encode(['success' => false, 'message' => 'Invalid login details. Check your Email / Vendor Code / Password.']);
         exit();
     }
     
@@ -1026,10 +1153,19 @@ if ($action) {
 
             $stmt = $db->prepare("
                 UPDATE gas_complaints 
-                SET status = 'Resolved', signature_url = :sig, resolved_at = NOW() 
-                WHERE id = :id
+              SET status = 'Resolved', signature_url = :sig, resolved_at = :resolved_at 
+              WHERE id = :id AND deleted = 0
             ");
-            $stmt->execute(['sig' => $sigUrl, 'id' => $id]);
+            $stmt->execute([
+              'sig' => $sigUrl,
+              'resolved_at' => date('Y-m-d H:i:s'),
+              'id' => $id
+            ]);
+
+            if ($stmt->rowCount() === 0) {
+              echo json_encode(['success' => false, 'error' => 'Complaint not found or already deleted']);
+              exit();
+            }
 
             logAction('DELIVER', $id, "Resolved case with signature upload");
 
@@ -1064,12 +1200,7 @@ if ($action) {
             $stmtC->execute(['id' => $id]);
             $c = $stmtC->fetch();
 
-            $msg = $tmpl;
-            $msg = str_replace('{{ConsumerNumber}}', $c['consumer_number'] ?? '', $msg);
-            $msg = str_replace('{{ConsumerName}}', $c['consumer_name'] ?? '', $msg);
-            $msg = str_replace('{{Mobile}}', $c['mobile'] ?? '', $msg);
-            $msg = str_replace('{{Address}}', $c['address'] ?? '', $msg);
-            $msg = str_replace('{{Complaint}}', $c['complaint'] ?? '', $msg);
+            $msg = fillVendorMessageTemplate($tmpl, $c, $vName);
 
             echo json_encode(['success' => true, 'whatsapp_message' => $msg]);
             break;
@@ -1575,12 +1706,7 @@ if ($action) {
                 $waMsg .= "==========================\n\n";
 
                 foreach ($open as $idx => $c) {
-                    $msgPart = $tmpl;
-                    $msgPart = str_replace('{{ConsumerNumber}}', $c['consumer_number'] ?? '', $msgPart);
-                    $msgPart = str_replace('{{ConsumerName}}', $c['consumer_name'] ?? '', $msgPart);
-                    $msgPart = str_replace('{{Mobile}}', $c['mobile'] ?? '', $msgPart);
-                    $msgPart = str_replace('{{Address}}', $c['address'] ?? '', $msgPart);
-                    $msgPart = str_replace('{{Complaint}}', $c['complaint'] ?? '', $msgPart);
+                    $msgPart = fillVendorMessageTemplate($tmpl, $c, $v['name']);
 
                     $waMsg .= ($idx + 1) . ") " . trim($msgPart) . "\n\n";
                 }
@@ -1616,12 +1742,7 @@ if ($action) {
             $stmtTmpl->execute();
             $tmpl = $stmtTmpl->fetchColumn() ?: '';
 
-            $msg = $tmpl;
-            $msg = str_replace('{{ConsumerNumber}}', $c['consumer_number'] ?? '', $msg);
-            $msg = str_replace('{{ConsumerName}}', $c['consumer_name'] ?? '', $msg);
-            $msg = str_replace('{{Mobile}}', $c['mobile'] ?? '', $msg);
-            $msg = str_replace('{{Address}}', $c['address'] ?? '', $msg);
-            $msg = str_replace('{{Complaint}}', $c['complaint'] ?? '', $msg);
+            $msg = fillVendorMessageTemplate($tmpl, $c, $c['vendor'] ?? '');
 
             echo json_encode(['success' => true, 'text' => $msg]);
             break;
@@ -3054,9 +3175,51 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       /* Main content full width */
       .main-content {
         margin-left: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
         padding: 0 !important;
         padding-bottom: 80px !important; /* room for bottom nav */
       }
+
+      .main-content > *,
+      .view-section,
+      .content-card,
+      .toolbar,
+      .filter-card {
+        max-width: 100% !important;
+        min-width: 0 !important;
+      }
+
+      main > header {
+        width: 100% !important;
+        box-sizing: border-box !important;
+        gap: 0.65rem !important;
+      }
+      main > header .page-title {
+        min-width: 0 !important;
+      }
+      main > header #viewTitle,
+      main > header #viewSubtitle {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #liveClockWidget {
+        margin-right: 0 !important;
+        flex-shrink: 0;
+      }
+      #liveClockWidget #clockDate { display: none; }
+
+      .form-control,
+      input:not([type="checkbox"]):not([type="radio"]),
+      select,
+      textarea {
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+      }
+      .btn-group { max-width: 100%; }
+      .btn { white-space: nowrap; }
 
       /* Mobile App-style top header */
       main > header {
@@ -3080,6 +3243,14 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
       /* View sections padding */
       .view-section { padding: 1rem !important; }
+      .dashboard-welcome { align-items: flex-start; flex-direction: column; }
+      .dashboard-welcome h2 { font-size: 1.25rem; }
+      .dashboard-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+      .dashboard-kpi { padding: 0.8rem; }
+      .dashboard-kpi strong { font-size: 1.2rem; }
+      .dashboard-columns { grid-template-columns: 1fr; gap: 0.75rem; }
+      .dashboard-chart-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+      .dashboard-activity { grid-template-columns: 1fr; }
 
       /* Stats grid — 2x3 grid on mobile */
       .stats-grid {
@@ -3181,6 +3352,15 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
     /* ---- Small Mobile (<480px) ---- */
     @media (max-width: 480px) {
+      .view-section { padding: 0.75rem !important; }
+      .content-card { border-radius: 8px !important; }
+      .toolbar,
+      .filter-card { padding: 0.75rem !important; }
+      .stats-grid .stat-card { min-width: 0 !important; }
+      .dashboard-kpis { gap: 0.45rem; }
+      .dashboard-kpi span, .dashboard-kpi small { font-size: 0.62rem; }
+      .dashboard-panel { padding: 0.9rem !important; }
+      .stat-card .label { white-space: normal !important; }
       .stats-grid {
         grid-template-columns: repeat(2, 1fr) !important;
         gap: 0.5rem !important;
@@ -3407,6 +3587,91 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       border: 2px solid #2563eb !important;
       box-shadow: 0 0 10px rgba(37, 99, 235, 0.2) !important;
     }
+
+    .dashboard-welcome { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.25rem; }
+    .dashboard-welcome h2 { margin:0.2rem 0; font-size:1.55rem; color:var(--text-main); }
+    .dashboard-welcome p { margin:0; color:var(--text-muted); font-size:0.82rem; }
+    .dashboard-kicker { color:var(--primary); font-size:0.65rem; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; }
+    .dashboard-kpis { display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:0.85rem; margin-bottom:1.25rem; }
+    .dashboard-kpi { min-width:0; padding:1rem; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-card); box-shadow:0 2px 8px rgba(15,23,42,0.04); }
+    .dashboard-kpi i { display:inline-flex; width:30px; height:30px; align-items:center; justify-content:center; border-radius:7px; margin-bottom:0.65rem; }
+    .dashboard-kpi span,.dashboard-kpi small { display:block; color:var(--text-muted); font-size:0.68rem; font-weight:700; }
+    .dashboard-kpi strong { display:block; margin:0.2rem 0; color:var(--text-main); font-size:1.4rem; }
+    .kpi-blue i { color:#2563eb; background:#dbeafe; }.kpi-amber i { color:#d97706; background:#fef3c7; }.kpi-cyan i { color:#0891b2; background:#cffafe; }.kpi-green i { color:#059669; background:#d1fae5; }.kpi-dark i { color:#fff; background:#1e293b; }
+    .dashboard-columns { display:grid; grid-template-columns:1.4fr 1fr; gap:1.25rem; margin-bottom:1.25rem; }
+    .dashboard-chart-grid { display:grid; grid-template-columns:1fr 1.4fr; gap:1.25rem; margin-top:1.25rem; }
+    .dashboard-chart { position:relative; height:220px; }
+    .dashboard-panel { padding:1.25rem; }
+    .dashboard-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem; margin-bottom:1rem; }
+    .dashboard-panel h3 { margin:0.2rem 0 0; color:var(--text-main); font-size:1rem; }
+    .dashboard-progress-row { display:flex; justify-content:space-between; margin-top:0.85rem; color:var(--text-muted); font-size:0.78rem; font-weight:700; }.dashboard-progress-row i { color:var(--primary); width:18px; }.dashboard-progress-row strong { color:var(--text-main); }.dashboard-progress { height:8px; overflow:hidden; border-radius:8px; background:var(--border-color); }.dashboard-progress i { display:block; width:0; height:100%; border-radius:inherit; background:var(--primary); transition:width .4s ease; }.dashboard-total-line { display:flex; justify-content:space-between; margin-top:1.1rem; padding-top:0.85rem; border-top:1px solid var(--border-color); color:var(--text-muted); font-size:0.78rem; font-weight:700; }.dashboard-total-line strong { color:var(--primary); }
+    .dashboard-action { width:100%; display:flex; align-items:center; gap:0.75rem; padding:0.75rem 0; border:0; border-bottom:1px solid var(--border-color); background:none; color:var(--text-main); text-align:left; cursor:pointer; }.dashboard-action:last-child { border-bottom:0; }.dashboard-action > i:first-child { width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:7px; color:var(--primary); background:color-mix(in srgb, var(--primary) 14%, transparent); }.dashboard-action span { flex:1; }.dashboard-action b,.dashboard-action small { display:block; }.dashboard-action b { font-size:0.78rem; }.dashboard-action small { margin-top:2px; color:var(--text-muted); font-size:0.68rem; }.dashboard-action > i:last-child { color:var(--text-muted); font-size:0.7rem; }.dashboard-bolt { color:#f59e0b; }.dashboard-live { color:#059669; font-size:0.65rem; font-weight:800; }.dashboard-live i { display:inline-block; width:6px; height:6px; margin-right:4px; border-radius:50%; background:#10b981; }.dashboard-activity { display:grid; grid-template-columns:repeat(3,1fr); gap:0.75rem; }.dashboard-activity > div { display:flex; align-items:center; gap:0.65rem; padding:0.8rem; border-radius:8px; background:var(--bg-main); }.dashboard-activity i { color:var(--primary); }.dashboard-activity span { flex:1; color:var(--text-muted); font-size:0.72rem; font-weight:700; }.dashboard-activity strong { color:var(--text-main); font-size:1.1rem; }
+
+    /* Top-bar appearance controls */
+    .appearance-control { position: relative; flex-shrink: 0; }
+    .appearance-toggle {
+      width: 38px; height: 38px; border: 1px solid var(--border-color);
+      border-radius: 8px; background: var(--bg-card); color: var(--text-main);
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .appearance-menu {
+      display: none; position: absolute; right: 0; top: calc(100% + 8px); z-index: 700;
+      width: 220px; padding: 0.75rem; border: 1px solid var(--border-color);
+      border-radius: 10px; background: var(--bg-card); box-shadow: 0 12px 30px rgba(15,23,42,0.2);
+    }
+    .appearance-menu.open { display: block; }
+    .appearance-menu-title { font-size: 0.7rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.6rem; }
+    .theme-swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.45rem; }
+    .theme-swatch { height: 28px; border: 2px solid transparent; border-radius: 6px; cursor: pointer; }
+    .theme-swatch.active { border-color: var(--text-main); box-shadow: 0 0 0 2px var(--bg-card); }
+    .theme-swatch[data-theme="blue"] { background: linear-gradient(90deg,#172554 50%,#3b82f6 50%); }
+    .theme-swatch[data-theme="cyan"] { background: linear-gradient(90deg,#164e63 50%,#06b6d4 50%); }
+    .theme-swatch[data-theme="green"] { background: linear-gradient(90deg,#064e3b 50%,#10b981 50%); }
+    .theme-swatch[data-theme="amber"] { background: linear-gradient(90deg,#422006 50%,#f59e0b 50%); }
+    .theme-swatch[data-theme="rose"] { background: linear-gradient(90deg,#4c0519 50%,#f43f5e 50%); }
+    .dark-mode-row { display:flex; align-items:center; justify-content:space-between; margin-top:0.75rem; padding-top:0.7rem; border-top:1px solid var(--border-color); font-size:0.78rem; font-weight:700; color:var(--text-main); }
+    .dark-mode-row input { accent-color: var(--primary); }
+
+    body.theme-dark { --bg-main:#111827; --bg-card:#1f2937; --text-main:#f8fafc; --text-muted:#94a3b8; --border-color:#374151; color:var(--text-main); }
+    body.theme-dark .content-card, body.theme-dark .toolbar, body.theme-dark .filter-card { background:#1f2937 !important; border-color:#374151 !important; }
+    body.theme-dark .form-control, body.theme-dark select, body.theme-dark textarea, body.theme-dark input { background:#111827 !important; color:#f8fafc !important; border-color:#4b5563 !important; }
+    body.theme-dark table th { background:#0f172a !important; }
+    body.theme-dark table td { border-color:#374151 !important; color:#e5e7eb; }
+
+    body.theme-cyan { --primary:#0891b2; --primary-dark:#0e7490; }
+    body.theme-green { --primary:#059669; --primary-dark:#047857; }
+    body.theme-amber { --primary:#d97706; --primary-dark:#b45309; }
+    body.theme-rose { --primary:#e11d48; --primary-dark:#be123c; }
+
+    /* Dashboard rules come after the main mobile block, so repeat the mobile layout here. */
+    @media (max-width: 991px) {
+      html, body, .app-container, .main-content { width:100%; max-width:100%; }
+      .main-content { overflow-x:hidden; }
+      .dashboard-welcome { flex-direction:column; align-items:stretch; }
+      .dashboard-welcome h2 { font-size:1.25rem; line-height:1.2; }
+      .dashboard-welcome .btn { align-self:flex-start; }
+      .dashboard-kpis { grid-template-columns:repeat(2, minmax(0, 1fr)); width:100%; }
+      .dashboard-columns, .dashboard-chart-grid { grid-template-columns:minmax(0, 1fr); width:100%; }
+      .dashboard-panel { min-width:0; overflow:hidden; }
+      .dashboard-activity { grid-template-columns:minmax(0, 1fr); }
+      .dashboard-chart { height:200px; min-width:0; }
+      .dashboard-action { min-width:0; }
+      #liveClockWidget { display:none !important; }
+      #headerActions { display:none !important; }
+      main > header { min-width:0; }
+      main > header .page-title { overflow:hidden; }
+      .appearance-menu { right:-4px; }
+    }
+
+    @media (max-width: 360px) {
+      .view-section { padding:0.65rem !important; }
+      .dashboard-kpis { gap:0.4rem; }
+      .dashboard-kpi { padding:0.65rem; }
+      .dashboard-kpi strong { font-size:1.05rem; }
+      .dashboard-kpi span, .dashboard-kpi small { font-size:0.58rem; }
+      .dashboard-panel { padding:0.75rem !important; }
+      .dashboard-panel-head .btn { padding:0.3rem 0.45rem; font-size:0.65rem; }
+    }
   </style>
 </head>
 <body>
@@ -3437,12 +3702,15 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       </div>
 
       <div class="sidebar-nav">
+        <div class="nav-item active" onclick="switchView('dashboard', this)">
+          <i class="fas fa-chart-pie"></i> <span>Dashboard</span>
+        </div>
         <!-- Back to Main CRM -->
         <a href="#" style="display:none;" class="nav-item" style="background-color: #1e293b; color: #3b82f6; margin-bottom: 0.8rem; border-left: 4px solid #3b82f6; font-weight: 700; text-decoration: none;">
           <i class="fas fa-arrow-left"></i> <span>Back to Main CRM</span>
         </a>
 
-        <div class="nav-item active" onclick="switchView('active-registry', this)">
+        <div class="nav-item" onclick="switchView('active-registry', this)">
           <i class="fas fa-clipboard-list"></i> <span>Active Registry</span>
         </div>
         <div class="nav-item" onclick="switchView('history', this)">
@@ -3541,6 +3809,20 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           <div id="clockTime" style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-top: 2px; letter-spacing: -0.3px; font-family: monospace;">00:00:00 AM</div>
           <div id="clockDate" style="font-size: 0.7rem; font-weight: 700; color: #64748b; margin-top: 2px;">Saturday, 15 Aug 2026</div>
         </div>
+        <div class="appearance-control">
+          <button class="appearance-toggle" type="button" onclick="toggleAppearanceMenu(event)" title="Theme settings" aria-label="Theme settings"><i class="fas fa-palette"></i></button>
+          <div class="appearance-menu" id="appearanceMenu">
+            <div class="appearance-menu-title">Color palette</div>
+            <div class="theme-swatches">
+              <button class="theme-swatch" data-theme="blue" onclick="setAppearanceTheme('blue')" title="Blue theme" aria-label="Blue theme"></button>
+              <button class="theme-swatch" data-theme="cyan" onclick="setAppearanceTheme('cyan')" title="Cyan theme" aria-label="Cyan theme"></button>
+              <button class="theme-swatch" data-theme="green" onclick="setAppearanceTheme('green')" title="Green theme" aria-label="Green theme"></button>
+              <button class="theme-swatch" data-theme="amber" onclick="setAppearanceTheme('amber')" title="Amber theme" aria-label="Amber theme"></button>
+              <button class="theme-swatch" data-theme="rose" onclick="setAppearanceTheme('rose')" title="Rose theme" aria-label="Rose theme"></button>
+            </div>
+            <label class="dark-mode-row"><span><i class="fas fa-moon"></i> Dark mode</span><input type="checkbox" id="darkModeToggle" onchange="setDarkMode(this.checked)"></label>
+          </div>
+        </div>
         <!-- Top-Bar Branch Selector (visible to Admin when Multi-Branch is Enabled) -->
         <select id="headerBranchSelector" class="form-control" style="max-width: 180px; display: none; margin: 0; border: 2px solid #e2e8f0; font-weight: 700; color: var(--text-main); font-size: 0.85rem;" onchange="changeActiveBranch(this.value)">
           <!-- Loaded dynamically -->
@@ -3559,7 +3841,41 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       </header>
 
       <!-- VIEW 1: ACTIVE COMPLAINTS REGISTRY -->
-      <section id="view-active-registry" class="view-section active">
+      <section id="view-dashboard" class="view-section active">
+        <div class="dashboard-welcome">
+          <div><span class="dashboard-kicker">Operations overview</span><h2>Good to see you, <?= htmlspecialchars($user['name']) ?></h2><p>Track complaints, dispatch work and service performance.</p></div>
+          <button class="btn btn-primary" onclick="openAddComplaintModal()"><i class="fas fa-plus"></i> New Complaint</button>
+        </div>
+        <div class="dashboard-kpis">
+          <div class="dashboard-kpi kpi-blue"><i class="fas fa-layer-group"></i><span>Total Cases</span><strong id="dashTotal">0</strong><small>All active records</small></div>
+          <div class="dashboard-kpi kpi-amber"><i class="fas fa-hourglass-half"></i><span>Pending</span><strong id="dashPending">0</strong><small>Need attention</small></div>
+          <div class="dashboard-kpi kpi-cyan"><i class="fas fa-truck"></i><span>In Progress</span><strong id="dashProgress">0</strong><small>With technicians</small></div>
+          <div class="dashboard-kpi kpi-green"><i class="fas fa-check-circle"></i><span>Resolved</span><strong id="dashResolved">0</strong><small>Completed cases</small></div>
+          <div class="dashboard-kpi kpi-dark"><i class="fas fa-calendar-day"></i><span>Today New</span><strong id="dashToday">0</strong><small>Registered today</small></div>
+        </div>
+        <div class="dashboard-columns">
+          <div class="content-card dashboard-panel">
+            <div class="dashboard-panel-head"><div><span class="dashboard-kicker">Live workload</span><h3>Complaint collection</h3></div><button class="btn btn-outline btn-sm" onclick="switchView('active-registry', null)">View all <i class="fas fa-arrow-right"></i></button></div>
+            <div class="dashboard-progress-row"><span><i class="fas fa-clock"></i> Pending</span><strong id="dashPendingLabel">0</strong></div><div class="dashboard-progress"><i id="dashPendingBar"></i></div>
+            <div class="dashboard-progress-row"><span><i class="fas fa-route"></i> In progress</span><strong id="dashProgressLabel">0</strong></div><div class="dashboard-progress"><i id="dashProgressBar"></i></div>
+            <div class="dashboard-progress-row"><span><i class="fas fa-check"></i> Resolved</span><strong id="dashResolvedLabel">0</strong></div><div class="dashboard-progress"><i id="dashResolvedBar"></i></div>
+            <div class="dashboard-total-line"><span>Resolution rate</span><strong id="dashRate">0%</strong></div>
+          </div>
+          <div class="content-card dashboard-panel">
+            <div class="dashboard-panel-head"><div><span class="dashboard-kicker">Shortcuts</span><h3>Operational actions</h3></div><i class="fas fa-bolt dashboard-bolt"></i></div>
+            <button class="dashboard-action" onclick="openAddComplaintModal()"><i class="fas fa-file-circle-plus"></i><span><b>Register complaint</b><small>Create a new service case</small></span><i class="fas fa-chevron-right"></i></button>
+            <button class="dashboard-action" onclick="switchView('reports', null)"><i class="fas fa-print"></i><span><b>Dispatch sheets</b><small>Print technician trip lists</small></span><i class="fas fa-chevron-right"></i></button>
+            <button class="dashboard-action" onclick="switchView('analytics', null)"><i class="fas fa-chart-line"></i><span><b>Performance charts</b><small>Review service trends</small></span><i class="fas fa-chevron-right"></i></button>
+          </div>
+        </div>
+        <div class="content-card dashboard-panel dashboard-recent"><div class="dashboard-panel-head"><div><span class="dashboard-kicker">Queue monitor</span><h3>Recent service activity</h3></div><span class="dashboard-live"><i></i> LIVE</span></div><div class="dashboard-activity"><div><i class="fas fa-inbox"></i><span>Open cases waiting for action</span><strong id="dashOpenCases">0</strong></div><div><i class="fas fa-user-check"></i><span>Cases currently assigned</span><strong id="dashAssignedCases">0</strong></div><div><i class="fas fa-calendar-check"></i><span>Resolved cases in records</span><strong id="dashResolvedCases">0</strong></div></div></div>
+        <div class="dashboard-chart-grid">
+          <div class="content-card dashboard-panel"><div class="dashboard-panel-head"><div><span class="dashboard-kicker">Distribution</span><h3>Complaint status</h3></div></div><div class="dashboard-chart"><canvas id="dashboardStatusChart"></canvas></div></div>
+          <div class="content-card dashboard-panel"><div class="dashboard-panel-head"><div><span class="dashboard-kicker">Last 7 days</span><h3>Registration trend</h3></div></div><div class="dashboard-chart"><canvas id="dashboardTrendChart"></canvas></div></div>
+        </div>
+      </section>
+
+      <section id="view-active-registry" class="view-section">
         <div class="stats-grid" id="statsGrid" style="grid-template-columns: repeat(5, 1fr);">
           <div class="stat-card premium-card-1">
             <div class="stat-icon"><i class="fas fa-layer-group"></i></div>
@@ -4647,7 +4963,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       vendors: [],
       activeRows: [],
       selectedVendorId: null,
-      currentView: 'active-registry',
+      currentView: 'dashboard',
       activePage: 1,
       employeeViewMode: 'grid'
     };
@@ -4707,6 +5023,40 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       });
     }
 
+    function toggleAppearanceMenu(event) {
+      event.stopPropagation();
+      const menu = document.getElementById('appearanceMenu');
+      if (menu) menu.classList.toggle('open');
+    }
+
+    function setAppearanceTheme(theme) {
+      const themes = ['blue', 'cyan', 'green', 'amber', 'rose'];
+      document.body.classList.remove(...themes.map(name => 'theme-' + name));
+      document.body.classList.add('theme-' + (themes.includes(theme) ? theme : 'blue'));
+      localStorage.setItem('gas_theme', theme);
+      document.querySelectorAll('.theme-swatch').forEach(swatch => {
+        swatch.classList.toggle('active', swatch.dataset.theme === theme);
+      });
+    }
+
+    function setDarkMode(enabled) {
+      document.body.classList.toggle('theme-dark', enabled);
+      localStorage.setItem('gas_dark_mode', enabled ? 'true' : 'false');
+      const toggle = document.getElementById('darkModeToggle');
+      if (toggle) toggle.checked = enabled;
+    }
+
+    function restoreAppearance() {
+      setAppearanceTheme(localStorage.getItem('gas_theme') || 'blue');
+      setDarkMode(localStorage.getItem('gas_dark_mode') === 'true');
+      document.addEventListener('click', event => {
+        const control = document.querySelector('.appearance-control');
+        if (control && !control.contains(event.target)) {
+          document.getElementById('appearanceMenu')?.classList.remove('open');
+        }
+      });
+    }
+
     // Debounce triggers
     function debounce(func, wait) {
       let timeout;
@@ -4725,6 +5075,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
     // Initial system load
     window.addEventListener('DOMContentLoaded', () => {
+      restoreAppearance();
       // Sidebar Toggle Logic
       const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
       const sidebar = document.getElementById('sidebar');
@@ -4757,10 +5108,10 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
       // Restore active view from URL hash on reload
       const hash = window.location.hash.substring(1);
-      if (hash && ['active-registry', 'history', 'vendors', 'reports', 'analytics', 'export', 'employees', 'settings', 'consumers'].includes(hash)) {
+      if (hash && ['dashboard', 'active-registry', 'history', 'vendors', 'reports', 'analytics', 'export', 'employees', 'settings', 'consumers'].includes(hash)) {
         switchView(hash, null);
       } else {
-        switchView('active-registry', null);
+        switchView('dashboard', null);
       }
     });
 
@@ -4790,6 +5141,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
       // Update titles
       const viewTitleMap = {
+        'dashboard': ['Dashboard', 'Overview of complaints and operations'],
         'active-registry': ['Active Registry', 'Track pending complaints'],
         'history': ['History Log', 'Audit closed complaints'],
         'vendors': ['Vendors Directory', 'Manage service providers'],
@@ -4806,7 +5158,8 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       document.getElementById('viewSubtitle').innerText = title[1];
 
       // Refresh corresponding sections
-      if (viewName === 'active-registry') loadComplaints(1);
+      if (viewName === 'dashboard') loadDashboardCharts();
+      else if (viewName === 'active-registry') loadComplaints(1);
       else if (viewName === 'history') loadHistory();
       else if (viewName === 'vendors') loadVendors();
       else if (viewName === 'reports') loadVendorReports();
@@ -4871,7 +5224,11 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             }
             
             fillDropdowns();
-            loadComplaints(1);
+            if (State.currentView === 'active-registry') {
+              loadComplaints(1);
+            } else if (State.currentView === 'dashboard') {
+              loadDashboardCharts();
+            }
           }
         })
         .catch(err => {
@@ -5029,6 +5386,56 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       setEl('statProgress',  stats.inProgress || stats.in_progress || 0);
       setEl('statDelivered', stats.delivered  || 0);
       setEl('statToday',     stats.todayNew   || stats.today || 0);
+      const pending = Number(stats.pending || 0);
+      const inProgress = Number(stats.inProgress || stats.in_progress || 0);
+      const resolved = Number(stats.delivered || 0);
+      const total = Number(stats.total || 0);
+      setEl('dashTotal', total);
+      setEl('dashPending', pending);
+      setEl('dashProgress', inProgress);
+      setEl('dashResolved', resolved);
+      setEl('dashToday', stats.todayNew || stats.today || 0);
+      setEl('dashPendingLabel', pending);
+      setEl('dashProgressLabel', inProgress);
+      setEl('dashResolvedLabel', resolved);
+      setEl('dashOpenCases', pending + inProgress);
+      setEl('dashAssignedCases', inProgress);
+      setEl('dashResolvedCases', resolved);
+      setEl('dashRate', total ? Math.round((resolved / total) * 100) + '%' : '0%');
+      [['dashPendingBar', pending], ['dashProgressBar', inProgress], ['dashResolvedBar', resolved]].forEach(([id, value]) => {
+        const bar = document.getElementById(id);
+        if (bar) bar.style.width = (total ? Math.min(100, value / total * 100) : 0) + '%';
+      });
+    }
+
+    function loadDashboardCharts() {
+      fetch('?action=get_analytics')
+        .then(res => res.json())
+        .then(res => {
+          if (!res.success || !res.analytics || typeof Chart === 'undefined') return;
+          const data = res.analytics;
+          window.dashboardCharts = window.dashboardCharts || {};
+          ['status', 'trend'].forEach(key => {
+            if (window.dashboardCharts[key]) window.dashboardCharts[key].destroy();
+          });
+          const statusCanvas = document.getElementById('dashboardStatusChart');
+          const trendCanvas = document.getElementById('dashboardTrendChart');
+          if (statusCanvas) {
+            window.dashboardCharts.status = new Chart(statusCanvas, {
+              type: 'doughnut',
+              data: { labels: data.status.labels, datasets: [{ data: data.status.data, backgroundColor: ['#f59e0b','#06b6d4','#10b981','#8b5cf6','#64748b'], borderWidth: 0 }] },
+              options: { responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, padding: 14 } } } }
+            });
+          }
+          if (trendCanvas) {
+            window.dashboardCharts.trend = new Chart(trendCanvas, {
+              type: 'line',
+              data: { labels: data.trend.labels, datasets: [{ label: 'Complaints', data: data.trend.data, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.12)', fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: '#2563eb' }] },
+              options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { grid: { display: false } } } }
+            });
+          }
+        })
+        .catch(err => console.error('Dashboard charts failed:', err));
     }
 
     function renderComplaintsTable(res) {
@@ -5076,18 +5483,26 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
         const tagStyle = TAG_COLORS[r.tag] || null;
         const tagBadge = (r.tag && r.tag !== '') && tagStyle
           ? `<span style="font-size:0.65rem;font-weight:700;background:${tagStyle.bg};color:${tagStyle.color};padding:2px 6px;border-radius:4px;margin-left:4px;">${escapeHtml(r.tag)}</span>`
-          : '';
-
-        // Repeat badge is set per-row if mobile appears more than once in current page
         const mobileCountOnPage = State.activeRows ? State.activeRows.filter(x => x.mobile === r.mobile).length : 1;
         const repeatBadge = mobileCountOnPage > 1
           ? `<span style="font-size:0.65rem;font-weight:800;background:#fff7ed;color:#c2410c;padding:2px 6px;border-radius:4px;margin-left:4px;">🔁 Repeat</span>`
           : '';
+        
+        const isUnresolved = r.status !== 'Resolved' && r.status !== 'Delivered' && r.status !== 'Closed';
+        const delBtnHtml = isUnresolved ? `
+          <button class="btn btn-success btn-sm" onclick="quickMarkDelivered(${r.id}, '${escapeHtml(r.consumer_name)}')" style="font-weight:700; margin-right:4px;" title="Mark Delivered">
+            <i class="fas fa-check-circle"></i> Delivered
+          </button>
+        ` : '';
 
         tr.innerHTML = `
-          <td class="hide-mobile"><input type="checkbox" class="c-sel" value="${r.id}" onclick="updateBatchToolbar()"></td>
-          <td style="font-weight:700;color:var(--primary);">#${r.id}${agingBadge}${tagBadge}</td>
-          <td style="font-size:0.75rem;color:var(--text-muted);font-weight:600;" class="hide-mobile">${dateFormatted}</td>
+          <td>
+            <input type="checkbox" class="c-sel" value="${r.id}" onchange="updateBatchToolbar()">
+          </td>
+          <td style="font-weight:700;color:var(--primary);">
+            #${r.id}
+            <div style="font-size:0.7rem;color:var(--text-muted);font-weight:normal;">${dateStr}</div>
+          </td>
           <td>
             <div style="font-weight:700;font-size:0.9rem;">${escapeHtml(r.consumer_name)}${repeatBadge}</div>
             <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">
@@ -5102,7 +5517,8 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           <td style="max-width:180px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;">${escapeHtml(r.complaint)}</td>
           <td style="font-weight:600;color:#1e293b;" class="hide-mobile">${escapeHtml(r.vendor || 'Unassigned')}</td>
           <td><span class="badge badge-${r.status.toLowerCase().replace(' ', '-')}">${r.status}</span></td>
-          <td>
+          <td style="white-space:nowrap;">
+            ${delBtnHtml}
             <button class="btn btn-primary btn-sm" onclick="viewComplaintDetails(${r.id})" style="background:#0f172a !important; color:#ffffff !important; border:none !important; font-weight:700;">
               <i class="fas fa-eye"></i> View
             </button>
@@ -5372,9 +5788,10 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
       // Render Footer Buttons
       let footerHtml = '';
-      if (c.status === 'Pending' || c.status === 'In Progress') {
+      const isUnresolved = c.status !== 'Resolved' && c.status !== 'Delivered' && c.status !== 'Closed';
+      if (isUnresolved) {
         footerHtml += `<button class="btn btn-warning" onclick="openAssignSingle(${c.id})"><i class="fas fa-user-tag"></i> Assign Vendor</button>`;
-        footerHtml += `<button class="btn btn-success" onclick="openMarkDeliveredModal(${c.id})"><i class="fas fa-check-double"></i> Mark Resolved</button>`;
+        footerHtml += `<button class="btn btn-success" onclick="quickMarkDelivered(${c.id}, '${escapeHtml(c.consumer_name)}')"><i class="fas fa-check-circle"></i> Mark Resolved</button>`;
       }
       
       footerHtml += `<button class="btn btn-outline" onclick="copyComplaintText(${c.id})"><i class="fab fa-whatsapp"></i> Copy Text</button>`;
@@ -5389,6 +5806,22 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
       document.getElementById('detailsModalFooter').innerHTML = footerHtml;
       openModal('detailsModal');
+    }
+
+    function quickMarkDelivered(id, consumerName) {
+      Swal.fire({
+        title: 'Mark Case #' + id + ' Delivered?',
+        text: `Confirm resolution for ${consumerName || 'Consumer'}`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Mark Resolved',
+        confirmButtonColor: '#10b981',
+        cancelButtonText: 'Cancel'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          submitResolutionNoSign(id);
+        }
+      });
     }
 
     // SIGNATURE PAD & RESOLUTION SYSTEM
@@ -5963,11 +6396,30 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       }
     }
 
+    function copyTextToClipboard(text, successMessage) {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text).then(() => showToast(successMessage));
+      }
+
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand('copy');
+      textarea.remove();
+      if (!copied) return Promise.reject(new Error('Clipboard copy failed'));
+      showToast(successMessage);
+      return Promise.resolve();
+    }
+
     function copyManifestText(vId) {
       const item = _reportsData.find(r => String(r.vendor.id) === String(vId));
       if (!item) return;
-      navigator.clipboard.writeText(item.whatsappMessage).then(() => {
-        showToast('Trip Manifest text copied!');
+      copyTextToClipboard(item.whatsappMessage, 'Trip Manifest text copied!').catch(() => {
+        Swal.fire('Copy failed', 'Text manually select karke copy karein.', 'warning');
       });
     }
 
@@ -6126,8 +6578,8 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
         .then(res => {
           showLoading(false);
           if (res.success) {
-            navigator.clipboard.writeText(res.text).then(() => {
-              showToast('Complaint details copied!');
+            copyTextToClipboard(res.text, 'Complaint details copied!').catch(() => {
+              Swal.fire('Copy failed', 'Text manually select karke copy karein.', 'warning');
             });
           }
         });
