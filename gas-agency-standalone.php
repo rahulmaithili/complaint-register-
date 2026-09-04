@@ -566,6 +566,16 @@ function renderLoginPage() {
         <div class="info-box">
           Agency Admin (Email) | Vendors (Vendor Code / Mobile)
         </div>
+
+        <!-- Branding Footer -->
+        <div style="margin-top: 18px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 0.75rem; color: #64748b; text-align: center;">
+          <div style="font-weight: 800; color: #2563eb; font-size: 0.82rem;">© Mr.Rahul Script</div>
+          <div style="margin-top: 5px; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 600; flex-wrap: wrap;">
+            <a href="https://wa.me/917564948617" target="_blank" style="color: #16a34a; text-decoration: none;"><i class="fab fa-whatsapp"></i> +917564948617</a>
+            <span style="color: #cbd5e1;">|</span>
+            <a href="mailto:life.rahulg@gmail.com" style="color: #4f46e5; text-decoration: none;"><i class="fas fa-envelope"></i> life.rahulg@gmail.com</a>
+          </div>
+        </div>
       </div>
 
       <!-- Forgot Password Card -->
@@ -4048,6 +4058,17 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           <i class="fas fa-sign-out-alt"></i>
         </button>
       </div>
+
+      <!-- Sidebar Branding Footer -->
+      <div style="padding: 10px 14px; margin-top: auto; border-top: 1px solid rgba(226,232,240,0.8); font-size: 0.72rem; color: #64748b; text-align: center; background: rgba(248,250,252,0.6);">
+        <div style="font-weight: 800; color: #2563eb; font-size: 0.76rem;">© Mr.Rahul Script</div>
+        <div style="margin-top: 4px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
+          <a href="https://wa.me/917564948617" target="_blank" style="color: #16a34a; text-decoration: none; font-weight: 700;"><i class="fab fa-whatsapp"></i> +917564948617</a>
+        </div>
+        <div style="margin-top: 2px;">
+          <a href="mailto:life.rahulg@gmail.com" style="color: #4f46e5; text-decoration: none; font-weight: 600;"><i class="fas fa-envelope"></i> life.rahulg@gmail.com</a>
+        </div>
+      </div>
     </nav>
 
     <!-- Main Content Panel -->
@@ -4869,8 +4890,15 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             </div>
           </div>
         </div>
-      </section>
-
+      <!-- Footer Branding -->
+      <footer style="margin-top: 2.5rem; margin-bottom: 1.5rem; padding: 1.25rem; text-align: center; font-size: 0.8rem; color: var(--text-muted); border-top: 1px solid var(--border-color); background: var(--bg-card); border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <div style="font-weight: 800; color: var(--primary); font-size: 0.88rem;">© Mr.Rahul Script</div>
+        <div style="margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 14px; font-weight: 600; flex-wrap: wrap;">
+          <a href="https://wa.me/917564948617" target="_blank" style="color: #16a34a; text-decoration: none;"><i class="fab fa-whatsapp"></i> WhatsApp: +917564948617</a>
+          <span>•</span>
+          <a href="mailto:life.rahulg@gmail.com" style="color: #4f46e5; text-decoration: none;"><i class="fas fa-envelope"></i> Email: life.rahulg@gmail.com</a>
+        </div>
+      </footer>
     </main>
 
     <!-- ⚡ FAB Button (Mobile) -->
