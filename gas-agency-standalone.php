@@ -2872,9 +2872,10 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       color: #cbd5e1;
     }
 
-    /* Collapsed: hide name/role and side logout button, show avatar-logout instead */
+    /* Collapsed: hide name/role, footer branding and side logout button */
     .sidebar.collapsed .sidebar-user-info,
-    .sidebar.collapsed .sidebar-user button.logout-btn {
+    .sidebar.collapsed .sidebar-user button.logout-btn,
+    .sidebar.collapsed .sidebar-branding-footer {
       display: none !important;
     }
     .sidebar.collapsed .sidebar-user {
@@ -4032,6 +4033,9 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             <i class="fas fa-cog"></i> <span>Settings Console</span>
           </div>
         <?php endif; ?>
+        <div class="nav-item" onclick="openAboutModal()">
+          <i class="fas fa-info-circle" style="color: #6366f1 !important;"></i> <span>About & System Help</span>
+        </div>
       </div>
 
 
@@ -4060,13 +4064,13 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       </div>
 
       <!-- Sidebar Branding Footer -->
-      <div style="padding: 10px 14px; margin-top: auto; border-top: 1px solid rgba(226,232,240,0.8); font-size: 0.72rem; color: #64748b; text-align: center; background: rgba(248,250,252,0.6);">
+      <div class="sidebar-branding-footer" onclick="openAboutModal()" style="padding: 10px 14px; margin-top: auto; border-top: 1px solid rgba(226,232,240,0.8); font-size: 0.72rem; color: #64748b; text-align: center; background: rgba(248,250,252,0.6); cursor: pointer;" title="Click for About & System Features Guide">
         <div style="font-weight: 800; color: #2563eb; font-size: 0.76rem;">© Mr.Rahul Script</div>
         <div style="margin-top: 4px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
-          <a href="https://wa.me/917564948617" target="_blank" style="color: #16a34a; text-decoration: none; font-weight: 700;"><i class="fab fa-whatsapp"></i> +917564948617</a>
+          <span style="color: #16a34a; font-weight: 700;"><i class="fab fa-whatsapp"></i> +917564948617</span>
         </div>
         <div style="margin-top: 2px;">
-          <a href="mailto:life.rahulg@gmail.com" style="color: #4f46e5; text-decoration: none; font-weight: 600;"><i class="fas fa-envelope"></i> life.rahulg@gmail.com</a>
+          <span style="color: #4f46e5; font-weight: 600;"><i class="fas fa-envelope"></i> life.rahulg@gmail.com</span>
         </div>
       </div>
     </nav>
@@ -4127,6 +4131,9 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             <label class="dark-mode-row"><span><i class="fas fa-moon"></i> Dark mode</span><input type="checkbox" id="darkModeToggle" onchange="setDarkMode(this.checked)"></label>
           </div>
         </div>
+        <button class="appearance-toggle" type="button" onclick="openAboutModal()" title="About System & Developer Guide" style="margin-left: -0.5rem;" aria-label="About System">
+          <i class="fas fa-question-circle" style="color: #3b82f6;"></i>
+        </button>
         <!-- Top-Bar Branch Selector (visible to Admin when Multi-Branch is Enabled) -->
         <select id="headerBranchSelector" class="form-control" style="max-width: 180px; display: none; margin: 0; border: 2px solid #e2e8f0; font-weight: 700; color: var(--text-main); font-size: 0.85rem;" onchange="changeActiveBranch(this.value)">
           <!-- Loaded dynamically -->
@@ -5331,6 +5338,117 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
     </div>
   </div>
 
+  <!-- Modal: About & System Help -->
+  <div class="modal-overlay" id="aboutModal">
+    <div class="modal" style="max-width: 650px; width: 92%; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff; padding: 18px 24px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 36px; height: 36px; background: rgba(59, 130, 246, 0.2); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">ℹ️</div>
+          <div>
+            <div class="modal-title" style="font-size: 1.15rem; font-weight: 700; color: #ffffff;">About & System Help Guide</div>
+            <div style="font-size: 0.78rem; opacity: 0.8; color: #94a3b8; font-weight: 400;">Gas Agency Complaint Management System</div>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal('aboutModal')" style="color: #fff; opacity: 0.8; background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px; overflow-y: auto; flex: 1;">
+        <!-- Developer Branding Section -->
+        <div style="background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+            <span style="font-size: 1.4rem;">👨‍💻</span>
+            <div>
+              <h4 style="margin: 0; font-size: 1rem; color: #1e3a8a; font-weight: 700;">Developed by Mr.Rahul Script</h4>
+              <p style="margin: 2px 0 0 0; font-size: 0.8rem; color: #3b82f6;">Official Copyright & Technical Support</p>
+            </div>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed #93c5fd;">
+            <a href="https://wa.me/917564948617" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; text-decoration: none; background: #25d366; color: white; padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 600; box-shadow: 0 2px 4px rgba(37,211,102,0.2);">
+              <span>💬 WhatsApp: +91 7564948617</span>
+            </a>
+            <a href="mailto:life.rahulg@gmail.com" style="display: inline-flex; align-items: center; gap: 6px; text-decoration: none; background: #ea4335; color: white; padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 600; box-shadow: 0 2px 4px rgba(234,67,53,0.2);">
+              <span>✉️ Email: life.rahulg@gmail.com</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Features Overview Section -->
+        <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+          <span>🚀</span> App Feature Highlights (Aap Is App Me Kya Kar Sakte Ho)
+        </h4>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 0.88rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>📋</span> Complaint Management
+            </div>
+            <ul style="margin: 0; padding-left: 18px; font-size: 0.8rem; color: #475569; line-height: 1.5;">
+              <li>Naye customer complaint register karein</li>
+              <li>Complaint status (Pending, In Progress, Delivered, Cancelled) update karein</li>
+              <li>Delete tracking with Security PIN protection</li>
+            </ul>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 0.88rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>🚚</span> Vendor Login & Access
+            </div>
+            <ul style="margin: 0; padding-left: 18px; font-size: 0.8rem; color: #475569; line-height: 1.5;">
+              <li>Vendors ke dedicated logins generate karein</li>
+              <li>Vendor login mein sirf unhe assigned complaints dikhte hain</li>
+              <li>Clean role-based sidebar navigation for vendors</li>
+            </ul>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 0.88rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>✍️</span> Digital Delivery Signature
+            </div>
+            <ul style="margin: 0; padding-left: 18px; font-size: 0.8rem; color: #475569; line-height: 1.5;">
+              <li>Delivered mark karte waqt optional digital signature pad</li>
+              <li>Customer delivery confirmation record preserve karein</li>
+            </ul>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 0.88rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>👥</span> Staff & Branch Management
+            </div>
+            <ul style="margin: 0; padding-left: 18px; font-size: 0.8rem; color: #475569; line-height: 1.5;">
+              <li>Employee and Staff accounts create karein</li>
+              <li>Multi-branch & Department configuration</li>
+              <li>Granular role permissions management</li>
+            </ul>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 0.88rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>📊</span> Reports & Filtering
+            </div>
+            <ul style="margin: 0; padding-left: 18px; font-size: 0.8rem; color: #475569; line-height: 1.5;">
+              <li>Filter complaints by Status, Vendor, Branch, and Date</li>
+              <li>Export data, generate reports, and print complaint slips</li>
+            </ul>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 0.88rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>🎨</span> Customization & Dark Mode
+            </div>
+            <ul style="margin: 0; padding-left: 18px; font-size: 0.8rem; color: #475569; line-height: 1.5;">
+              <li>Toggle Light / Dark mode effortlessly</li>
+              <li>Customizable branding, agency details, and options</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="padding: 14px 20px; border-top: 1px solid #e2e8f0; text-align: right;">
+        <button class="btn btn-outline" onclick="closeModal('aboutModal')" style="min-width: 100px;">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal 7: Branch Form (Add/Edit) -->
   <div class="modal-overlay" id="branchModal">
     <div class="modal" style="max-width: 440px;">
@@ -5416,6 +5534,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
     // Helper functions
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function openAboutModal() { openModal('aboutModal'); }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
     function showLoading(show) { document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none'; }
 
