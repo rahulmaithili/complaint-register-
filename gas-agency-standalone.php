@@ -2226,7 +2226,7 @@ if ($action) {
             $id = $_GET['id'] ?? '';
             $active = $_GET['active'] ?? 1;
 
-            if (String($id) === String($_SESSION['gas_user_id'])) {
+            if ((string)$id === (string)($_SESSION['gas_user_id'] ?? '')) {
                 echo json_encode(['success' => false, 'error' => 'Cannot deactivate yourself']);
                 exit();
             }
@@ -2246,7 +2246,7 @@ if ($action) {
 
             $id = $_GET['id'] ?? '';
 
-            if (String($id) === String($_SESSION['gas_user_id'])) {
+            if ((string)$id === (string)($_SESSION['gas_user_id'] ?? '')) {
                 echo json_encode(['success' => false, 'error' => 'Cannot delete yourself']);
                 exit();
             }
@@ -7773,7 +7773,13 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           if (res.success) {
             showToast('Employee status updated');
             loadEmployees();
+          } else {
+            showToast(res.error || 'Operation failed', 'error');
           }
+        })
+        .catch(err => {
+          showLoading(false);
+          showToast('Network / Server error', 'error');
         });
     }
 
@@ -7801,6 +7807,10 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
               } else {
                 showToast(res.error || 'Operation failed', 'error');
               }
+            })
+            .catch(err => {
+              showLoading(false);
+              showToast('Network / Server error', 'error');
             });
         }
       });
