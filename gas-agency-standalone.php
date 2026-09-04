@@ -5204,6 +5204,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       sources: [],
       vendors: [],
       activeRows: [],
+      histRows: [],
       selectedVendorId: null,
       currentView: 'dashboard',
       activePage: 1,
@@ -5750,7 +5751,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           </td>
           <td style="font-weight:700;color:var(--primary);">
             #${r.id}
-            <div style="font-size:0.7rem;color:var(--text-muted);font-weight:normal;">${dateStr}</div>
+            <div style="font-size:0.7rem;color:var(--text-muted);font-weight:normal;">${dateFormatted}${agingBadge}</div>
           </td>
           <td>
             <div style="font-weight:700;font-size:0.9rem;">${escapeHtml(r.consumer_name)}${repeatBadge}</div>
@@ -6962,9 +6963,29 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
     }
 
     function printComplaintSlip(id) {
-      const c = State.activeRows.find(x => String(x.id) === String(id)) || State.histRows.find(x => String(x.id) === String(id));
-      if (!c) return;
+      let c = (State.activeRows || []).find(x => String(x.id) === String(id)) || 
+              (State.histRows || []).find(x => String(x.id) === String(id));
 
+      if (!c) {
+        showLoading(true);
+        fetch(`?action=get_complaint_details&id=${id}`)
+          .then(res => res.json())
+          .then(res => {
+            showLoading(false);
+            if (res.success && res.complaint) {
+              triggerPrintSlipModal(res.complaint);
+            } else {
+              showToast('Complaint record not found', 'error');
+            }
+          })
+          .catch(() => { showLoading(false); showToast('Network error', 'error'); });
+        return;
+      }
+
+      triggerPrintSlipModal(c);
+    }
+
+    function triggerPrintSlipModal(c) {
       Swal.fire({
         title: 'Select Print Format',
         text: 'Choose layout for service slip:',
