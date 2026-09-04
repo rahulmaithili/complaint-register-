@@ -1339,6 +1339,12 @@ if ($action) {
                 $params['branch_id'] = $activeBranchId;
             }
 
+            if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
+                $whereClauses[] = "(vendor_id = :v_id OR vendor = :v_name)";
+                $params['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
+                $params['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
+            }
+
             if ($status) {
                 $whereClauses[] = "status = :status";
                 $params['status'] = $status;
@@ -1663,7 +1669,15 @@ if ($action) {
             break;
 
         case 'get_vendor_reports':
-            $vendors = $db->query("SELECT * FROM gas_vendors ORDER BY name ASC")->fetchAll();
+            if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
+                $vId = $_SESSION['gas_vendor_id'] ?? 0;
+                $vName = $_SESSION['gas_vendor_name'] ?? '';
+                $stmtV = $db->prepare("SELECT * FROM gas_vendors WHERE id = :vid OR name = :vname");
+                $stmtV->execute(['vid' => $vId, 'vname' => $vName]);
+                $vendors = $stmtV->fetchAll();
+            } else {
+                $vendors = $db->query("SELECT * FROM gas_vendors ORDER BY name ASC")->fetchAll();
+            }
             
             // Company name
             $stmtName = $db->prepare("SELECT setting_value FROM gas_settings WHERE setting_key = 'CompanyName'");
@@ -1677,16 +1691,18 @@ if ($action) {
 
             $report = [];
 
-            // Add unassigned category
-            $unassignedOpen = $db->query("SELECT * FROM gas_complaints WHERE deleted = 0 AND (vendor_id IS NULL OR vendor_id = 0) AND status NOT IN ('Delivered', 'Resolved', 'Closed')")->fetchAll();
-            $report[] = [
-                'vendor' => ['id' => '', 'name' => 'Unassigned Queue', 'mobile' => ''],
-                'openCount' => count($unassignedOpen),
-                'deliveredCount' => 0,
-                'totalAssigned' => count($unassignedOpen),
-                'openComplaints' => $unassignedOpen,
-                'whatsappMessage' => ''
-            ];
+            // Add unassigned category only for Admin / Staff
+            if (($_SESSION['gas_role'] ?? '') !== 'Vendor') {
+                $unassignedOpen = $db->query("SELECT * FROM gas_complaints WHERE deleted = 0 AND (vendor_id IS NULL OR vendor_id = 0) AND status NOT IN ('Delivered', 'Resolved', 'Closed')")->fetchAll();
+                $report[] = [
+                    'vendor' => ['id' => '', 'name' => 'Unassigned Queue', 'mobile' => ''],
+                    'openCount' => count($unassignedOpen),
+                    'deliveredCount' => 0,
+                    'totalAssigned' => count($unassignedOpen),
+                    'openComplaints' => $unassignedOpen,
+                    'whatsappMessage' => ''
+                ];
+            }
 
             foreach ($vendors as $v) {
                 // Open jobs for this vendor
