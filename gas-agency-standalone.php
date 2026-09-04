@@ -6420,13 +6420,6 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             // Clean selection
             document.getElementById('selectAll').checked = false;
             updateBatchToolbar();
-
-            // WhatsApp link redirection trigger
-            if (res.whatsapp_message && vendor.mobile) {
-              const cleanedMobile = vendor.mobile.replace(/\D/g, '');
-              const waUrl = `https://wa.me/91${cleanedMobile}?text=${encodeURIComponent(res.whatsapp_message)}`;
-              setTimeout(() => window.open(waUrl, '_blank'), 500);
-            }
           }
         });
     }
