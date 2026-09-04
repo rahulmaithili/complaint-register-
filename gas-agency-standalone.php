@@ -4911,22 +4911,41 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
     <!-- 📱 Bottom Navigation Bar (Mobile Only) -->
     <nav class="bottom-nav" id="bottomNav">
       <div class="bottom-nav-inner">
-        <button class="bnav-item active" id="bnav-active-registry" onclick="switchView('active-registry', null); setBottomNav('active-registry')">
-          <i class="fas fa-clipboard-list"></i>
-          <span>Active</span>
-        </button>
-        <button class="bnav-item" id="bnav-history" onclick="switchView('history', null); setBottomNav('history')">
-          <i class="fas fa-history"></i>
-          <span>History</span>
-        </button>
-        <button class="bnav-item" id="bnav-reports" onclick="switchView('reports', null); setBottomNav('reports')">
-          <i class="fas fa-print"></i>
-          <span>Dispatch</span>
-        </button>
-        <button class="bnav-item" id="bnav-vendors" onclick="switchView('vendors', null); setBottomNav('vendors')">
-          <i class="fas fa-truck"></i>
-          <span>Vendors</span>
-        </button>
+        <?php if (($user['role'] ?? '') === 'Vendor'): ?>
+          <button class="bnav-item active" id="bnav-active-registry" onclick="switchView('active-registry', null); setBottomNav('active-registry')">
+            <i class="fas fa-truck-loading"></i>
+            <span>Deliveries</span>
+          </button>
+          <button class="bnav-item" id="bnav-history" onclick="switchView('history', null); setBottomNav('history')">
+            <i class="fas fa-history"></i>
+            <span>History</span>
+          </button>
+          <button class="bnav-item" id="bnav-reports" onclick="switchView('reports', null); setBottomNav('reports')">
+            <i class="fas fa-file-invoice"></i>
+            <span>Trip Sheet</span>
+          </button>
+          <button class="bnav-item" id="bnav-dashboard" onclick="switchView('dashboard', null); setBottomNav('dashboard')">
+            <i class="fas fa-chart-pie"></i>
+            <span>Portal</span>
+          </button>
+        <?php else: ?>
+          <button class="bnav-item active" id="bnav-active-registry" onclick="switchView('active-registry', null); setBottomNav('active-registry')">
+            <i class="fas fa-clipboard-list"></i>
+            <span>Active</span>
+          </button>
+          <button class="bnav-item" id="bnav-history" onclick="switchView('history', null); setBottomNav('history')">
+            <i class="fas fa-history"></i>
+            <span>History</span>
+          </button>
+          <button class="bnav-item" id="bnav-reports" onclick="switchView('reports', null); setBottomNav('reports')">
+            <i class="fas fa-print"></i>
+            <span>Dispatch</span>
+          </button>
+          <button class="bnav-item" id="bnav-vendors" onclick="switchView('vendors', null); setBottomNav('vendors')">
+            <i class="fas fa-truck"></i>
+            <span>Vendors</span>
+          </button>
+        <?php endif; ?>
         <button class="bnav-item" id="bnav-more" onclick="openSidebar()">
           <i class="fas fa-bars"></i>
           <span>More</span>
@@ -5540,6 +5559,12 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
     });
 
     function switchView(viewName, element) {
+      const isVendor = State.user && State.user.role === 'Vendor';
+      const vendorAllowedViews = ['dashboard', 'active-registry', 'history', 'reports'];
+      if (isVendor && !vendorAllowedViews.includes(viewName)) {
+        viewName = 'active-registry';
+      }
+
       document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
       document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
       
