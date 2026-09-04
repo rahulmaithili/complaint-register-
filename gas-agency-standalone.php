@@ -246,6 +246,49 @@ if ($db) {
 
 
 // Standalone Helper functions
+function getVendorSessionInfo($db = null) {
+    $vId = $_SESSION['gas_vendor_id'] ?? 0;
+    $vName = trim($_SESSION['gas_vendor_name'] ?? '');
+
+    // Fallbacks if vendor session variables are missing or incomplete
+    if (empty($vName)) {
+        $vName = trim($_SESSION['gas_user']['name'] ?? ($_SESSION['gas_user']['username'] ?? ''));
+    }
+
+    // Try finding matching vendor in gas_vendors table if ID or Name is missing/ambiguous
+    if ($db) {
+        try {
+            $uName = trim($_SESSION['gas_user']['username'] ?? '');
+            $uMobile = trim($_SESSION['gas_user']['mobile'] ?? '');
+            
+            $stmt = $db->prepare("
+                SELECT id, name FROM gas_vendors 
+                WHERE (id = :vid AND :vid > 0)
+                   OR (LOWER(TRIM(name)) = LOWER(TRIM(:vname)) AND :vname != '')
+                   OR (LOWER(TRIM(code)) = LOWER(TRIM(:uname)) AND :uname != '')
+                   OR (mobile = :mob AND :mob != '')
+                LIMIT 1
+            ");
+            $stmt->execute([
+                'vid' => $vId,
+                'vname' => $vName,
+                'uname' => $uName,
+                'mob' => $uMobile
+            ]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                if (empty($vId) || $vId == 0) $vId = $row['id'];
+                if (empty($vName)) $vName = trim($row['name']);
+            }
+        } catch (Exception $e) {}
+    }
+
+    return [
+        'id' => $vId,
+        'name' => $vName
+    ];
+}
+
 function isLoggedIn() {
     return isset($_SESSION['gas_user_id']) && !empty($_SESSION['gas_user_id']);
 }
@@ -923,8 +966,9 @@ if ($action) {
             }
 
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $vId = $_SESSION['gas_vendor_id'] ?? 0;
-                $vName = trim($_SESSION['gas_vendor_name'] ?? '');
+                $vInfo = getVendorSessionInfo($db);
+                $vId = $vInfo['id'];
+                $vName = $vInfo['name'];
                 $vCond = " AND (vendor_id = :v_id OR vendor_id = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
                 
                 $statsWhere .= $vCond;
@@ -1015,8 +1059,9 @@ if ($action) {
             }
 
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $vId = $_SESSION['gas_vendor_id'] ?? 0;
-                $vName = trim($_SESSION['gas_vendor_name'] ?? '');
+                $vInfo = getVendorSessionInfo($db);
+                $vId = $vInfo['id'];
+                $vName = $vInfo['name'];
                 $whereClauses[] = "(vendor_id = :v_id OR vendor_id = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
                 $params['v_id'] = $vId;
                 $params['v_id_str'] = (string)$vId;
@@ -1073,8 +1118,9 @@ if ($action) {
                 $statsParams['branch_id'] = $activeBranchId;
             }
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $vId = $_SESSION['gas_vendor_id'] ?? 0;
-                $vName = trim($_SESSION['gas_vendor_name'] ?? '');
+                $vInfo = getVendorSessionInfo($db);
+                $vId = $vInfo['id'];
+                $vName = $vInfo['name'];
                 $statsWhere .= " AND (vendor_id = :v_id OR vendor_id = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
                 $statsParams['v_id'] = $vId;
                 $statsParams['v_id_str'] = (string)$vId;
@@ -1458,9 +1504,13 @@ if ($action) {
             }
 
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $whereClauses[] = "(vendor_id = :v_id OR vendor = :v_name)";
-                $params['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
-                $params['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
+                $vInfo = getVendorSessionInfo($db);
+                $vId = $vInfo['id'];
+                $vName = $vInfo['name'];
+                $whereClauses[] = "(vendor_id = :v_id OR vendor_id = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
+                $params['v_id'] = $vId;
+                $params['v_id_str'] = (string)$vId;
+                $params['v_name'] = strtolower($vName);
             }
 
             if ($status) {
@@ -1788,11 +1838,15 @@ if ($action) {
 
         case 'get_vendor_reports':
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $vId = $_SESSION['gas_vendor_id'] ?? 0;
-                $vName = $_SESSION['gas_vendor_name'] ?? '';
-                $stmtV = $db->prepare("SELECT * FROM gas_vendors WHERE id = :vid OR name = :vname");
+                $vInfo = getVendorSessionInfo($db);
+                $vId = $vInfo['id'];
+                $vName = $vInfo['name'];
+                $stmtV = $db->prepare("SELECT * FROM gas_vendors WHERE id = :vid OR (name IS NOT NULL AND LOWER(TRIM(name)) = LOWER(TRIM(:vname)))");
                 $stmtV->execute(['vid' => $vId, 'vname' => $vName]);
                 $vendors = $stmtV->fetchAll();
+                if (empty($vendors) && !empty($vName)) {
+                    $vendors = [['id' => $vId, 'name' => $vName, 'mobile' => '']];
+                }
             } else {
                 $vendors = $db->query("SELECT * FROM gas_vendors ORDER BY name ASC")->fetchAll();
             }
@@ -1894,9 +1948,13 @@ if ($action) {
                 $params['branch_id'] = $activeBranchId;
             }
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $where .= " AND (vendor_id = :v_id OR vendor = :v_name)";
-                $params['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
-                $params['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
+                $vInfo = getVendorSessionInfo($db);
+                $vId = $vInfo['id'];
+                $vName = $vInfo['name'];
+                $where .= " AND (vendor_id = :v_id OR vendor_id = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
+                $params['v_id'] = $vId;
+                $params['v_id_str'] = (string)$vId;
+                $params['v_name'] = strtolower($vName);
             }
 
             // 1. Status distribution
@@ -2065,6 +2123,16 @@ if ($action) {
                 'role' => $row['role']
             ];
             $_SESSION['gas_role'] = $row['role'];
+
+            if ($row['role'] === 'Vendor') {
+                $_SESSION['gas_vendor_name'] = $row['name'];
+                try {
+                    $stmtV = $db->prepare("SELECT id FROM gas_vendors WHERE LOWER(TRIM(name)) = LOWER(TRIM(:n)) OR LOWER(TRIM(code)) = LOWER(TRIM(:u)) OR mobile = :m LIMIT 1");
+                    $stmtV->execute(['n' => $row['name'], 'u' => $row['username'], 'm' => $row['mobile'] ?? '']);
+                    $vId = $stmtV->fetchColumn();
+                    if ($vId) $_SESSION['gas_vendor_id'] = $vId;
+                } catch (Exception $e) {}
+            }
 
             logAction('IMPERSONATE', $row['id'], "Impersonated user account: " . $row['username']);
             echo json_encode(['success' => true]);
@@ -4241,8 +4309,8 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
                   <i class="fas fa-tasks text-primary"></i> STATUS TYPE
                 </label>
                 <select id="filterStatus" class="form-control" onchange="syncPipelineFilterAndLoad()">
-                  <option value="">All Statuses</option>
-                  <option value="Pending" selected>Pending</option>
+                  <option value="" selected>All Active</option>
+                  <option value="Pending">Pending</option>
                   <option value="In Progress">In Progress</option>
                   <option value="Delivered">Delivered</option>
                   <option value="Resolved">Resolved</option>
