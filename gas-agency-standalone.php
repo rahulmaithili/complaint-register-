@@ -3705,33 +3705,30 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
         <div class="nav-item active" onclick="switchView('dashboard', this)">
           <i class="fas fa-chart-pie"></i> <span>Dashboard</span>
         </div>
-        <!-- Back to Main CRM -->
-        <a href="#" style="display:none;" class="nav-item" style="background-color: #1e293b; color: #3b82f6; margin-bottom: 0.8rem; border-left: 4px solid #3b82f6; font-weight: 700; text-decoration: none;">
-          <i class="fas fa-arrow-left"></i> <span>Back to Main CRM</span>
-        </a>
-
         <div class="nav-item" onclick="switchView('active-registry', this)">
-          <i class="fas fa-clipboard-list"></i> <span>Active Registry</span>
+          <i class="fas fa-truck-loading"></i> <span><?= ($user['role'] === 'Vendor') ? 'My Active Deliveries' : 'Active Registry' ?></span>
         </div>
         <div class="nav-item" onclick="switchView('history', this)">
-          <i class="fas fa-history"></i> <span>History Log</span>
-        </div>
-        <div class="nav-item" onclick="switchView('vendors', this)">
-          <i class="fas fa-truck"></i> <span>Vendors Directory</span>
+          <i class="fas fa-history"></i> <span><?= ($user['role'] === 'Vendor') ? 'Delivery History' : 'History Log' ?></span>
         </div>
         <div class="nav-item" onclick="switchView('reports', this)">
-          <i class="fas fa-file-invoice"></i> <span>Dispatch Sheets</span>
+          <i class="fas fa-file-invoice"></i> <span><?= ($user['role'] === 'Vendor') ? 'Trip Manifest' : 'Dispatch Sheets' ?></span>
         </div>
-        <div class="nav-item" onclick="switchView('analytics', this)">
-          <i class="fas fa-chart-line"></i> <span>Performance Charts</span>
-        </div>
-        <div class="nav-item" onclick="switchView('export', this)">
-          <i class="fas fa-file-excel"></i> <span>Data Export</span>
-        </div>
-        <div class="nav-item" onclick="switchView('consumers', this)">
-          <i class="fas fa-users"></i> <span>Consumer Registry</span>
-        </div>
-        <?php if ($user['role'] === 'Admin'): ?>
+        <?php if (($user['role'] ?? '') !== 'Vendor'): ?>
+          <div class="nav-item" onclick="switchView('vendors', this)">
+            <i class="fas fa-truck"></i> <span>Vendors Directory</span>
+          </div>
+          <div class="nav-item" onclick="switchView('analytics', this)">
+            <i class="fas fa-chart-line"></i> <span>Performance Charts</span>
+          </div>
+          <div class="nav-item" onclick="switchView('export', this)">
+            <i class="fas fa-file-excel"></i> <span>Data Export</span>
+          </div>
+          <div class="nav-item" onclick="switchView('consumers', this)">
+            <i class="fas fa-users"></i> <span>Consumer Registry</span>
+          </div>
+        <?php endif; ?>
+        <?php if (($user['role'] ?? '') === 'Admin'): ?>
           <div class="nav-item" onclick="switchView('employees', this)">
             <i class="fas fa-users-cog"></i> <span>Employee Management</span>
           </div>
@@ -5497,6 +5494,11 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           </button>
         ` : '';
 
+        const cleanMobile = (r.mobile || '').replace(/\D/g, '');
+        const callBtn = cleanMobile ? `<a href="tel:${cleanMobile}" class="btn btn-outline btn-sm" style="color:#2563eb; font-weight:700; padding:2px 8px; margin-right:4px;" title="Call Consumer"><i class="fas fa-phone-alt"></i></a>` : '';
+        const waBtn = cleanMobile ? `<a href="https://wa.me/91${cleanMobile}?text=${encodeURIComponent('Hello ' + (r.consumer_name||'') + ', regarding your HP Gas complaint #' + r.id)}" target="_blank" class="btn btn-outline btn-sm" style="color:#16a34a; font-weight:700; padding:2px 8px; margin-right:4px;" title="WhatsApp Consumer"><i class="fab fa-whatsapp"></i></a>` : '';
+        const mapBtn = r.address ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.address)}" target="_blank" class="btn btn-outline btn-sm" style="color:#ea580c; font-weight:700; padding:2px 8px; margin-right:4px;" title="Google Maps Navigation"><i class="fas fa-map-marker-alt"></i></a>` : '';
+
         tr.innerHTML = `
           <td>
             <input type="checkbox" class="c-sel" value="${r.id}" onchange="updateBatchToolbar()">
@@ -5520,7 +5522,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           <td style="font-weight:600;color:#1e293b;" class="hide-mobile">${escapeHtml(r.vendor || 'Unassigned')}</td>
           <td><span class="badge badge-${r.status.toLowerCase().replace(' ', '-')}">${r.status}</span></td>
           <td style="white-space:nowrap;">
-            ${delBtnHtml}
+            ${callBtn}${waBtn}${mapBtn}${delBtnHtml}
             <button class="btn btn-primary btn-sm" onclick="viewComplaintDetails(${r.id})" style="background:#0f172a !important; color:#ffffff !important; border:none !important; font-weight:700;">
               <i class="fas fa-eye"></i> View
             </button>
