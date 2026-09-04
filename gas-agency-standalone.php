@@ -875,6 +875,14 @@ if ($action) {
                 $statsWhere .= " AND branch_id = :branch_id";
                 $statsParams['branch_id'] = $activeBranchId;
             }
+
+            $compWhere = "deleted = 0 AND status NOT IN ('Delivered', 'Resolved', 'Closed')";
+            $compParams = [];
+            if ($activeBranchId > 0) {
+                $compWhere .= " AND branch_id = :branch_id";
+                $compParams['branch_id'] = $activeBranchId;
+            }
+
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
                 $vId = $_SESSION['gas_vendor_id'] ?? 0;
                 $vName = trim($_SESSION['gas_vendor_name'] ?? '');
@@ -890,6 +898,19 @@ if ($action) {
                 $compParams['v_id_str'] = (string)$vId;
                 $compParams['v_name'] = strtolower($vName);
             }
+
+            $statsStmt = $db->prepare("
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) as inProgress,
+                    SUM(CASE WHEN status IN ('Delivered','Resolved') THEN 1 ELSE 0 END) as delivered,
+                    SUM(CASE WHEN DATE(created_at) = {$todayCheck} THEN 1 ELSE 0 END) as todayNew
+                FROM gas_complaints
+                WHERE $statsWhere
+            ");
+            $statsStmt->execute($statsParams);
+            $stats = $statsStmt->fetch();
 
             $compStmt = $db->prepare("
                 SELECT * FROM gas_complaints 
