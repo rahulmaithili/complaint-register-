@@ -5484,6 +5484,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
         const tagStyle = TAG_COLORS[r.tag] || null;
         const tagBadge = (r.tag && r.tag !== '') && tagStyle
           ? `<span style="font-size:0.65rem;font-weight:700;background:${tagStyle.bg};color:${tagStyle.color};padding:2px 6px;border-radius:4px;margin-left:4px;">${escapeHtml(r.tag)}</span>`
+          : '';
         const mobileCountOnPage = State.activeRows ? State.activeRows.filter(x => x.mobile === r.mobile).length : 1;
         const repeatBadge = mobileCountOnPage > 1
           ? `<span style="font-size:0.65rem;font-weight:800;background:#fff7ed;color:#c2410c;padding:2px 6px;border-radius:4px;margin-left:4px;">🔁 Repeat</span>`
