@@ -40,6 +40,15 @@ if ($db) {
     try {
         $db->exec("ALTER TABLE gas_consumers ADD COLUMN ekyc_status TEXT DEFAULT ''");
     } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE gas_complaints ADD COLUMN fail_reason TEXT DEFAULT ''");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE gas_complaints ADD COLUMN fail_notes TEXT DEFAULT ''");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE gas_complaints ADD COLUMN photo_proof_url TEXT DEFAULT ''");
+    } catch (Exception $e) {}
 
     // Multi-branch schema migrations
     try {
@@ -1122,6 +1131,32 @@ if ($action) {
             }
             break;
 
+        case 'mark_delivery_failed':
+            if (!hasPermission('complaints_deliver')) {
+                echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                exit();
+            }
+
+            $id = $_POST['id'] ?? '';
+            $reason = trim($_POST['fail_reason'] ?? '');
+            $notes = trim($_POST['fail_notes'] ?? '');
+
+            if (!$id || !$reason) {
+                echo json_encode(['success' => false, 'error' => 'Complaint ID and Failure Reason are required']);
+                exit();
+            }
+
+            $stmt = $db->prepare("
+                UPDATE gas_complaints 
+                SET status = 'Delivery Failed', fail_reason = :r, fail_notes = :n 
+                WHERE id = :id AND deleted = 0
+            ");
+            $stmt->execute(['r' => $reason, 'n' => $notes, 'id' => $id]);
+
+            logAction('DELIVERY_FAILED', $id, "Delivery Failed: " . $reason . ($notes ? " ($notes)" : ""));
+            echo json_encode(['success' => true]);
+            break;
+
         case 'resolve_complaint':
             if (!hasPermission('complaints_deliver')) {
                 echo json_encode(['success' => false, 'error' => 'Permission denied']);
@@ -1133,31 +1168,43 @@ if ($action) {
             $sigUrl = '';
 
             if ($sigData && strpos($sigData, 'data:image/png;base64,') === 0) {
-                // Create directory for digital signatures
-                $dir = __DIR__ . '/../uploads/gas_signatures';
+                $dir = __DIR__ . '/uploads/gas_signatures';
                 if (!file_exists($dir)) {
                     mkdir($dir, 0777, true);
                 }
 
-                // Decode base64 PNG data
                 $data = base64_decode(substr($sigData, 22));
-                $fileName = '/uploads/gas_signatures/signature_' . $id . '_' . time() . '.png';
-                file_put_contents(__DIR__ . '/..' . $fileName, $data);
-                
-                // Get URL relative to site
-                $sigUrl = '../..' . $fileName; // Path relative to script
-                
-                // Alternatively, absolute browser URL
-                $sigUrl = APP_URL . $fileName;
+                $fileName = 'signature_' . $id . '_' . time() . '.png';
+                file_put_contents($dir . '/' . $fileName, $data);
+                $sigUrl = 'uploads/gas_signatures/' . $fileName;
+            }
+
+            // Photo proof upload
+            $photoProofUrl = '';
+            if (isset($_FILES['photo_proof']) && $_FILES['photo_proof']['error'] === UPLOAD_ERR_OK) {
+                $uploadDir = __DIR__ . '/uploads/gas_delivery_photos';
+                if (!file_exists($uploadDir)) {
+                    mkdir($uploadDir, 0777, true);
+                }
+                $ext = pathinfo($_FILES['photo_proof']['name'], PATHINFO_EXTENSION) ?: 'jpg';
+                $photoFileName = 'proof_' . $id . '_' . time() . '.' . $ext;
+                $targetFile = $uploadDir . '/' . $photoFileName;
+                if (move_uploaded_file($_FILES['photo_proof']['tmp_name'], $targetFile)) {
+                    $photoProofUrl = 'uploads/gas_delivery_photos/' . $photoFileName;
+                }
             }
 
             $stmt = $db->prepare("
                 UPDATE gas_complaints 
-              SET status = 'Resolved', signature_url = :sig, resolved_at = :resolved_at 
-              WHERE id = :id AND deleted = 0
+                SET status = 'Resolved', 
+                    signature_url = CASE WHEN :sig != '' THEN :sig ELSE signature_url END, 
+                    photo_proof_url = CASE WHEN :photo != '' THEN :photo ELSE photo_proof_url END,
+                    resolved_at = :resolved_at 
+                WHERE id = :id AND deleted = 0
             ");
             $stmt->execute([
               'sig' => $sigUrl,
+              'photo' => $photoProofUrl,
               'resolved_at' => date('Y-m-d H:i:s'),
               'id' => $id
             ]);
@@ -1167,7 +1214,7 @@ if ($action) {
               exit();
             }
 
-            logAction('DELIVER', $id, "Resolved case with signature upload");
+            logAction('DELIVER', $id, "Resolved case with resolution data");
 
             echo json_encode(['success' => true]);
             break;
@@ -3920,6 +3967,10 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             <button class="btn btn-primary" onclick="openAddComplaintModal()">
               <i class="fas fa-plus"></i> Add Complaint
             </button>
+          <?php else: ?>
+            <button class="btn btn-primary" onclick="optimizeVendorRoute()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border:none; box-shadow: 0 4px 12px rgba(16,185,129,0.3);">
+              <i class="fas fa-route"></i> 🗺️ Route Optimizer
+            </button>
           <?php endif; ?>
           <button class="btn btn-outline" onclick="triggerCsvExport()">
             <i class="fas fa-file-csv"></i> CSV
@@ -3936,6 +3987,8 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           <div><span class="dashboard-kicker">Operations overview</span><h2>Good to see you, <?= htmlspecialchars($user['name']) ?></h2><p>Track complaints, dispatch work and service performance.</p></div>
           <?php if (($user['role'] ?? '') !== 'Vendor'): ?>
             <button class="btn btn-primary" onclick="openAddComplaintModal()"><i class="fas fa-plus"></i> New Complaint</button>
+          <?php else: ?>
+            <button class="btn btn-primary" onclick="optimizeVendorRoute()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border:none; box-shadow: 0 4px 12px rgba(16,185,129,0.3);"><i class="fas fa-route"></i> 🗺️ Route Optimizer</button>
           <?php endif; ?>
         </div>
         <div class="dashboard-kpis">
@@ -3957,6 +4010,8 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             <div class="dashboard-panel-head"><div><span class="dashboard-kicker">Shortcuts</span><h3>Operational actions</h3></div><i class="fas fa-bolt dashboard-bolt"></i></div>
             <?php if (($user['role'] ?? '') !== 'Vendor'): ?>
               <button class="dashboard-action" onclick="openAddComplaintModal()"><i class="fas fa-file-circle-plus"></i><span><b>Register complaint</b><small>Create a new service case</small></span><i class="fas fa-chevron-right"></i></button>
+            <?php else: ?>
+              <button class="dashboard-action" onclick="optimizeVendorRoute()"><i class="fas fa-route"></i><span><b>🗺️ GPS Route Optimizer</b><small>Get Google Maps directions for open deliveries</small></span><i class="fas fa-chevron-right"></i></button>
             <?php endif; ?>
             <button class="dashboard-action" onclick="switchView('reports', null)"><i class="fas fa-print"></i><span><b>Dispatch sheets</b><small>Print technician trip lists</small></span><i class="fas fa-chevron-right"></i></button>
             <button class="dashboard-action" onclick="switchView('analytics', null)"><i class="fas fa-chart-line"></i><span><b>Performance charts</b><small>Review service trends</small></span><i class="fas fa-chevron-right"></i></button>
@@ -5852,7 +5907,26 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
         </div>
       ` : '';
 
+      const failBanner = c.fail_reason ? `
+        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:10px; padding:12px 15px; margin-bottom:1.25rem;">
+          <div style="font-weight:800; color:#dc2626; font-size:0.9rem; display:flex; align-items:center; gap:6px;">
+            <i class="fas fa-exclamation-triangle"></i> Delivery Failed: ${escapeHtml(c.fail_reason)}
+          </div>
+          ${c.fail_notes ? `<div style="font-size:0.8rem; color:#7f1d1d; margin-top:4px;"><b>Notes:</b> ${escapeHtml(c.fail_notes)}</div>` : ''}
+        </div>
+      ` : '';
+
+      const photoBlock = c.photo_proof_url ? `
+        <div style="grid-column: 1 / -1; margin-top: 0.75rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
+          <div style="font-weight:700;margin-bottom:0.4rem;font-size:0.82rem;color:var(--text-muted);"><i class="fas fa-camera"></i> Delivery Photo Proof:</div>
+          <a href="${c.photo_proof_url}" target="_blank">
+            <img src="${c.photo_proof_url}" style="max-height:120px; border:1px solid var(--border-color); border-radius:8px; background:white; padding:4px; object-fit:cover;" />
+          </a>
+        </div>
+      ` : '';
+
       const detailGrid = `
+        ${failBanner}
         <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 15px; margin-bottom:1.5rem; font-size:0.8rem;">
           <span style="color:#64748b; font-weight:700;"><i class="fas fa-info-circle text-primary"></i> Created: ${createdDate}</span>
           <span class="badge badge-${c.status.toLowerCase().replace(' ', '-')}">${c.status}</span>
@@ -5888,6 +5962,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           <div>${resolvedDate}</div>
           
           ${sigBlock}
+          ${photoBlock}
         </div>
       `;
 
@@ -5897,8 +5972,11 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       let footerHtml = '';
       const isUnresolved = c.status !== 'Resolved' && c.status !== 'Delivered' && c.status !== 'Closed';
       if (isUnresolved) {
-        footerHtml += `<button class="btn btn-warning" onclick="openAssignSingle(${c.id})"><i class="fas fa-user-tag"></i> Assign Vendor</button>`;
-        footerHtml += `<button class="btn btn-success" onclick="quickMarkDelivered(${c.id}, '${escapeHtml(c.consumer_name)}')"><i class="fas fa-check-circle"></i> Mark Resolved</button>`;
+        if (State.user.role !== 'Vendor') {
+          footerHtml += `<button class="btn btn-warning" onclick="openAssignSingle(${c.id})"><i class="fas fa-user-tag"></i> Assign Vendor</button>`;
+        }
+        footerHtml += `<button class="btn btn-success" onclick="openMarkDeliveredModal(${c.id})"><i class="fas fa-check-circle"></i> Mark Resolved</button>`;
+        footerHtml += `<button class="btn btn-outline" onclick="openReportIssueModal(${c.id}, '${escapeHtml(c.consumer_name)}')" style="color:#ef4444; border-color:#fca5a5;"><i class="fas fa-exclamation-triangle"></i> Report Issue</button>`;
       }
       
       footerHtml += `<button class="btn btn-outline" onclick="copyComplaintText(${c.id})"><i class="fab fa-whatsapp"></i> Copy Text</button>`;
@@ -5931,6 +6009,86 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       });
     }
 
+    function optimizeVendorRoute() {
+      if (!State.activeRows || State.activeRows.length === 0) {
+        Swal.fire('No Active Deliveries', 'No open complaint addresses to route.', 'info');
+        return;
+      }
+      const addrs = State.activeRows
+        .map(r => r.address ? r.address.trim() : '')
+        .filter(a => a.length > 0);
+      if (addrs.length === 0) {
+        Swal.fire('No Valid Addresses', 'Active complaints do not have valid addresses.', 'warning');
+        return;
+      }
+      const dest = encodeURIComponent(addrs[addrs.length - 1]);
+      const waypoints = addrs.slice(0, addrs.length - 1).map(a => encodeURIComponent(a)).join('|');
+      const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=My+Location&destination=${dest}&waypoints=${waypoints}`;
+      window.open(mapsUrl, '_blank');
+    }
+
+    function openReportIssueModal(id, consumerName) {
+      Swal.fire({
+        title: `Report Issue — Case #${id}`,
+        html: `
+          <p style="font-size:0.85rem;color:#64748b;margin-bottom:1rem;">Select reason why delivery could not be completed for <b>${escapeHtml(consumerName || 'Consumer')}</b>:</p>
+          <div style="text-align:left;">
+            <label style="font-size:0.8rem;font-weight:700;">Issue Reason *</label>
+            <select id="swal_fail_reason" class="swal2-input" style="width:100%;margin:0.4rem 0 1rem 0;height:42px;font-size:0.88rem;">
+              <option value="🚪 Ghar Band (House Locked)">🚪 Ghar Band (House Locked)</option>
+              <option value="📞 Phone Nahi Utha Raha (Not Answering)">📞 Phone Nahi Utha Raha (Not Answering)</option>
+              <option value="📍 Galat Pata (Wrong Address)">📍 Galat Pata (Wrong Address)</option>
+              <option value="❌ Customer Ne Mana Kiya (Refused)">❌ Customer Ne Mana Kiya (Refused)</option>
+              <option value="⏳ Customer Out of Station">⏳ Customer Out of Station</option>
+              <option value="⚪ Other Issue">⚪ Other Issue</option>
+            </select>
+            <label style="font-size:0.8rem;font-weight:700;">Additional Notes (Optional)</label>
+            <input type="text" id="swal_fail_notes" class="swal2-input" style="width:100%;margin:0.4rem 0 0 0;height:42px;font-size:0.88rem;" placeholder="e.g. Called 3 times at 11:30 AM">
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Submit Issue',
+        confirmButtonColor: '#ef4444',
+        cancelButtonText: 'Cancel',
+        preConfirm: () => {
+          const reason = document.getElementById('swal_fail_reason').value;
+          const notes = document.getElementById('swal_fail_notes').value;
+          if (!reason) {
+            Swal.showValidationMessage('Please select an issue reason');
+            return false;
+          }
+          return { reason, notes };
+        }
+      }).then((result) => {
+        if (result.isConfirmed) {
+          submitDeliveryFailed(id, result.value.reason, result.value.notes);
+        }
+      });
+    }
+
+    function submitDeliveryFailed(id, reason, notes) {
+      const fd = new FormData();
+      fd.append('action', 'mark_delivery_failed');
+      fd.append('id', id);
+      fd.append('fail_reason', reason);
+      fd.append('fail_notes', notes);
+
+      showLoading(true);
+      fetch('?', { method: 'POST', body: fd })
+        .then(res => res.json())
+        .then(res => {
+          showLoading(false);
+          if (res.success) {
+            showToast('Delivery issue logged');
+            closeModal('detailsModal');
+            loadComplaints(State.activePage);
+          } else {
+            showToast(res.error || 'Failed to log issue', 'error');
+          }
+        })
+        .catch(() => { showLoading(false); showToast('Network error', 'error'); });
+    }
+
     // SIGNATURE PAD & RESOLUTION SYSTEM
     let sigDrawing = false;
     let canvasContext = null;
@@ -5940,18 +6098,22 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       
       // Load resolution modal dialog
       const markup = `
-        <div style="margin-bottom:1.5rem;">
+        <div style="margin-bottom:1.25rem;">
           <h2 style="margin:0;font-weight:800;color:#10b981;">Mark Case #${id} Resolved</h2>
-          <p style="margin:0.25rem 0 0 0;color:var(--text-muted);font-size:0.85rem;">Capture the customer digital signature to complete resolution.</p>
+          <p style="margin:0.25rem 0 0 0;color:var(--text-muted);font-size:0.85rem;">Capture signature or attach photo proof to complete resolution.</p>
         </div>
         <div class="form-group">
-          <label>Customer Signature Pad (Sign using mouse/touch)</label>
+          <label><i class="fas fa-signature"></i> Customer Digital Signature</label>
           <div class="sig-canvas-container">
             <canvas id="sigCanvas"></canvas>
           </div>
-          <div style="text-align:right;margin-top:0.5rem;">
+          <div style="text-align:right;margin-top:0.35rem;">
             <button class="btn btn-outline btn-sm" onclick="clearSignatureCanvas()"><i class="fas fa-undo"></i> Clear Sign</button>
           </div>
+        </div>
+        <div class="form-group" style="margin-top:1rem;">
+          <label><i class="fas fa-camera"></i> Upload Delivery Photo / Receipt Proof (Optional)</label>
+          <input type="file" id="deliveryPhotoFile" accept="image/*" capture="environment" class="form-control" style="padding:6px;">
         </div>
       `;
 
@@ -5969,7 +6131,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
         
         // Match canvas dimensions to offsetWidth
         canvas.width = canvas.offsetWidth;
-        canvas.height = 150;
+        canvas.height = 130;
 
         canvasContext.strokeStyle = '#0f172a';
         canvasContext.lineWidth = 3;
@@ -6037,6 +6199,11 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       fd.append('id', id);
       fd.append('signature_data', base64Data);
 
+      const fileInput = document.getElementById('deliveryPhotoFile');
+      if (fileInput && fileInput.files && fileInput.files[0]) {
+        fd.append('photo_proof', fileInput.files[0]);
+      }
+
       showLoading(true);
       fetch('?', { method: 'POST', body: fd })
         .then(res => res.json())
@@ -6058,6 +6225,11 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       fd.append('action', 'resolve_complaint');
       fd.append('id', id);
       fd.append('signature_data', '');
+
+      const fileInput = document.getElementById('deliveryPhotoFile');
+      if (fileInput && fileInput.files && fileInput.files[0]) {
+        fd.append('photo_proof', fileInput.files[0]);
+      }
 
       showLoading(true);
       fetch('?', { method: 'POST', body: fd })
