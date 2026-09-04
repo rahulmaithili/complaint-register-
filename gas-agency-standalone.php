@@ -4758,6 +4758,7 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
             <label>Role</label>
             <select id="u_role" class="form-control" onchange="togglePermissionsBlock()">
               <option value="Employee">Employee (Restricted permissions)</option>
+              <option value="Vendor">Vendor / Delivery Boy</option>
               <option value="Admin">Admin (Full privileges)</option>
             </select>
           </div>
