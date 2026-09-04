@@ -3841,9 +3841,11 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           <!-- Loaded dynamically -->
         </select>
         <div class="btn-group" id="headerActions">
-          <button class="btn btn-primary" onclick="openAddComplaintModal()">
-            <i class="fas fa-plus"></i> Add Complaint
-          </button>
+          <?php if (($user['role'] ?? '') !== 'Vendor'): ?>
+            <button class="btn btn-primary" onclick="openAddComplaintModal()">
+              <i class="fas fa-plus"></i> Add Complaint
+            </button>
+          <?php endif; ?>
           <button class="btn btn-outline" onclick="triggerCsvExport()">
             <i class="fas fa-file-csv"></i> CSV
           </button>
@@ -3857,7 +3859,9 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       <section id="view-dashboard" class="view-section active">
         <div class="dashboard-welcome">
           <div><span class="dashboard-kicker">Operations overview</span><h2>Good to see you, <?= htmlspecialchars($user['name']) ?></h2><p>Track complaints, dispatch work and service performance.</p></div>
-          <button class="btn btn-primary" onclick="openAddComplaintModal()"><i class="fas fa-plus"></i> New Complaint</button>
+          <?php if (($user['role'] ?? '') !== 'Vendor'): ?>
+            <button class="btn btn-primary" onclick="openAddComplaintModal()"><i class="fas fa-plus"></i> New Complaint</button>
+          <?php endif; ?>
         </div>
         <div class="dashboard-kpis">
           <div class="dashboard-kpi kpi-blue"><i class="fas fa-layer-group"></i><span>Total Cases</span><strong id="dashTotal">0</strong><small>All active records</small></div>
@@ -3876,7 +3880,9 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           </div>
           <div class="content-card dashboard-panel">
             <div class="dashboard-panel-head"><div><span class="dashboard-kicker">Shortcuts</span><h3>Operational actions</h3></div><i class="fas fa-bolt dashboard-bolt"></i></div>
-            <button class="dashboard-action" onclick="openAddComplaintModal()"><i class="fas fa-file-circle-plus"></i><span><b>Register complaint</b><small>Create a new service case</small></span><i class="fas fa-chevron-right"></i></button>
+            <?php if (($user['role'] ?? '') !== 'Vendor'): ?>
+              <button class="dashboard-action" onclick="openAddComplaintModal()"><i class="fas fa-file-circle-plus"></i><span><b>Register complaint</b><small>Create a new service case</small></span><i class="fas fa-chevron-right"></i></button>
+            <?php endif; ?>
             <button class="dashboard-action" onclick="switchView('reports', null)"><i class="fas fa-print"></i><span><b>Dispatch sheets</b><small>Print technician trip lists</small></span><i class="fas fa-chevron-right"></i></button>
             <button class="dashboard-action" onclick="switchView('analytics', null)"><i class="fas fa-chart-line"></i><span><b>Performance charts</b><small>Review service trends</small></span><i class="fas fa-chevron-right"></i></button>
           </div>
@@ -4526,9 +4532,11 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
     </main>
 
     <!-- ⚡ FAB Button (Mobile) -->
-    <button class="mobile-fab" onclick="openAddComplaintModal()" title="Add Complaint">
-      <i class="fas fa-plus"></i>
-    </button>
+    <?php if (($user['role'] ?? '') !== 'Vendor'): ?>
+      <button class="mobile-fab" onclick="openAddComplaintModal()" title="Add Complaint">
+        <i class="fas fa-plus"></i>
+      </button>
+    <?php endif; ?>
 
     <!-- 📱 Bottom Navigation Bar (Mobile Only) -->
     <nav class="bottom-nav" id="bottomNav">
@@ -5590,6 +5598,10 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
     // CRUD ACTIONS: COMPLAINTS
     function openAddComplaintModal() {
+      if (State.user && State.user.role === 'Vendor') {
+        showToast('Vendors are not permitted to add complaints.', 'error');
+        return;
+      }
       document.getElementById('c_id').value = '';
       document.getElementById('c_no').value = '';
       document.getElementById('c_name').value = '';
