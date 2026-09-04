@@ -886,7 +886,7 @@ if ($action) {
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
                 $vId = $_SESSION['gas_vendor_id'] ?? 0;
                 $vName = trim($_SESSION['gas_vendor_name'] ?? '');
-                $vCond = " AND (vendor_id = :v_id OR CAST(vendor_id AS TEXT) = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
+                $vCond = " AND (vendor_id = :v_id OR vendor_id = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
                 
                 $statsWhere .= $vCond;
                 $statsParams['v_id'] = $vId;
@@ -978,7 +978,7 @@ if ($action) {
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
                 $vId = $_SESSION['gas_vendor_id'] ?? 0;
                 $vName = trim($_SESSION['gas_vendor_name'] ?? '');
-                $whereClauses[] = "(vendor_id = :v_id OR CAST(vendor_id AS TEXT) = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
+                $whereClauses[] = "(vendor_id = :v_id OR vendor_id = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
                 $params['v_id'] = $vId;
                 $params['v_id_str'] = (string)$vId;
                 $params['v_name'] = strtolower($vName);
@@ -1036,7 +1036,7 @@ if ($action) {
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
                 $vId = $_SESSION['gas_vendor_id'] ?? 0;
                 $vName = trim($_SESSION['gas_vendor_name'] ?? '');
-                $statsWhere .= " AND (vendor_id = :v_id OR CAST(vendor_id AS TEXT) = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
+                $statsWhere .= " AND (vendor_id = :v_id OR vendor_id = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
                 $statsParams['v_id'] = $vId;
                 $statsParams['v_id_str'] = (string)$vId;
                 $statsParams['v_name'] = strtolower($vName);
@@ -1786,7 +1786,7 @@ if ($action) {
             foreach ($vendors as $v) {
                 $vId = $v['id'];
                 $vName = trim(strtolower($v['name'] ?? ''));
-                $vCond = "(vendor_id = :vid OR CAST(vendor_id AS TEXT) = :vid_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = :vname))";
+                $vCond = "(vendor_id = :vid OR vendor_id = :vid_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = :vname))";
 
                 // Open jobs for this vendor
                 $stmtOpen = $db->prepare("SELECT * FROM gas_complaints WHERE deleted = 0 AND {$vCond} AND status NOT IN ('Delivered', 'Resolved', 'Closed') ORDER BY created_at DESC");
