@@ -5040,6 +5040,14 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           </div>
         </div>
         
+        <!-- Vendor Select Block for Auto-Fill -->
+        <div class="form-group" id="vendorSelectBlock" style="display: none; margin-bottom: 1rem; background: #f0fdf4; padding: 10px; border-radius: 8px; border: 1px solid #bbf7d0;">
+          <label style="color: #166534; font-weight: 700;"><i class="fas fa-truck"></i> Select Vendor from Directory (Auto-Fill)</label>
+          <select id="u_vendor_select" class="form-control" onchange="onVendorDropdownSelect(this.value)" style="border-color: #86efac; font-weight: 600;">
+            <option value="">-- Choose Vendor from Directory --</option>
+          </select>
+        </div>
+        
         <div class="form-group" id="empBranchSelectBlock" style="display: none; margin-bottom: 1rem;">
           <label>Assigned Branch / Agency *</label>
           <select id="u_branch_id" class="form-control"></select>
@@ -7686,9 +7694,56 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       openModal('employeeModal');
     }
 
+    function populateVendorDropdown() {
+      const sel = document.getElementById('u_vendor_select');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">-- Select Vendor from Directory --</option>';
+      if (State.vendors && State.vendors.length > 0) {
+        State.vendors.forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = v.id;
+          opt.textContent = `${v.name} (${v.code || v.mobile || 'Vendor'})`;
+          sel.appendChild(opt);
+        });
+      }
+    }
+
+    function onVendorDropdownSelect(vId) {
+      if (!vId || !State.vendors) return;
+      const v = State.vendors.find(x => String(x.id) === String(vId));
+      if (v) {
+        document.getElementById('u_name').value = v.name || '';
+        document.getElementById('u_uname').value = v.code || v.mobile || v.name || '';
+        document.getElementById('u_mobile').value = v.mobile || '';
+        if (!document.getElementById('u_id').value) {
+          document.getElementById('u_pw').value = v.code || v.mobile || '1234';
+        }
+        showToast('Vendor details auto-filled!');
+      }
+    }
+
     function togglePermissionsBlock() {
       const role = document.getElementById('u_role').value;
       document.getElementById('permissionsBlock').style.display = (role === 'Admin') ? 'none' : 'block';
+
+      const vendorBlock = document.getElementById('vendorSelectBlock');
+      if (vendorBlock) {
+        if (role === 'Vendor') {
+          vendorBlock.style.display = 'block';
+          if (!State.vendors || State.vendors.length === 0) {
+            fetch('?action=get_vendors').then(r => r.json()).then(res => {
+              if (res.success) {
+                State.vendors = res.vendors;
+                populateVendorDropdown();
+              }
+            });
+          } else {
+            populateVendorDropdown();
+          }
+        } else {
+          vendorBlock.style.display = 'none';
+        }
+      }
     }
 
     function submitEmployeeForm() {
