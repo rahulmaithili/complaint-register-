@@ -5874,7 +5874,13 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           if (res.success) {
             showToast(id ? 'Complaint updated' : 'Complaint registered successfully');
             closeModal('complaintModal');
-            loadComplaints(State.activePage);
+            if (!id) {
+              clearActiveFilters();
+              switchView('active-registry', null);
+              loadComplaints(1);
+            } else {
+              loadComplaints(State.activePage);
+            }
           } else {
             showToast(res.error || 'Operation failed', 'error');
           }
