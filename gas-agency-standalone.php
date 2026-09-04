@@ -876,35 +876,19 @@ if ($action) {
                 $statsParams['branch_id'] = $activeBranchId;
             }
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $statsWhere .= " AND (vendor_id = :v_id OR vendor = :v_name)";
-                $statsParams['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
-                $statsParams['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
-            }
+                $vId = $_SESSION['gas_vendor_id'] ?? 0;
+                $vName = trim($_SESSION['gas_vendor_name'] ?? '');
+                $vCond = " AND (vendor_id = :v_id OR CAST(vendor_id AS TEXT) = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
+                
+                $statsWhere .= $vCond;
+                $statsParams['v_id'] = $vId;
+                $statsParams['v_id_str'] = (string)$vId;
+                $statsParams['v_name'] = strtolower($vName);
 
-            $statsStmt = $db->prepare("
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending,
-                    SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) as inProgress,
-                    SUM(CASE WHEN status IN ('Delivered','Resolved') THEN 1 ELSE 0 END) as delivered,
-                    SUM(CASE WHEN DATE(created_at) = {$todayCheck} THEN 1 ELSE 0 END) as todayNew
-                FROM gas_complaints
-                WHERE $statsWhere
-            ");
-            $statsStmt->execute($statsParams);
-            $stats = $statsStmt->fetch();
-
-            // Complaints (First page — active only)
-            $compWhere = "deleted = 0 AND status NOT IN ('Delivered', 'Resolved', 'Closed')";
-            $compParams = [];
-            if ($activeBranchId > 0) {
-                $compWhere .= " AND branch_id = :branch_id";
-                $compParams['branch_id'] = $activeBranchId;
-            }
-            if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $compWhere .= " AND (vendor_id = :v_id OR vendor = :v_name)";
-                $compParams['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
-                $compParams['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
+                $compWhere .= $vCond;
+                $compParams['v_id'] = $vId;
+                $compParams['v_id_str'] = (string)$vId;
+                $compParams['v_name'] = strtolower($vName);
             }
 
             $compStmt = $db->prepare("
@@ -971,9 +955,12 @@ if ($action) {
             }
 
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $whereClauses[] = "(vendor_id = :v_id OR vendor = :v_name)";
-                $params['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
-                $params['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
+                $vId = $_SESSION['gas_vendor_id'] ?? 0;
+                $vName = trim($_SESSION['gas_vendor_name'] ?? '');
+                $whereClauses[] = "(vendor_id = :v_id OR CAST(vendor_id AS TEXT) = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
+                $params['v_id'] = $vId;
+                $params['v_id_str'] = (string)$vId;
+                $params['v_name'] = strtolower($vName);
             }
 
             if ($status) {
@@ -1026,9 +1013,12 @@ if ($action) {
                 $statsParams['branch_id'] = $activeBranchId;
             }
             if (($_SESSION['gas_role'] ?? '') === 'Vendor') {
-                $statsWhere .= " AND (vendor_id = :v_id OR vendor = :v_name)";
-                $statsParams['v_id'] = $_SESSION['gas_vendor_id'] ?? 0;
-                $statsParams['v_name'] = $_SESSION['gas_vendor_name'] ?? '';
+                $vId = $_SESSION['gas_vendor_id'] ?? 0;
+                $vName = trim($_SESSION['gas_vendor_name'] ?? '');
+                $statsWhere .= " AND (vendor_id = :v_id OR CAST(vendor_id AS TEXT) = :v_id_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = LOWER(:v_name)))";
+                $statsParams['v_id'] = $vId;
+                $statsParams['v_id_str'] = (string)$vId;
+                $statsParams['v_name'] = strtolower($vName);
             }
             
             $statsStmt = $db->prepare("
@@ -1773,14 +1763,18 @@ if ($action) {
             }
 
             foreach ($vendors as $v) {
+                $vId = $v['id'];
+                $vName = trim(strtolower($v['name'] ?? ''));
+                $vCond = "(vendor_id = :vid OR CAST(vendor_id AS TEXT) = :vid_str OR (vendor IS NOT NULL AND LOWER(TRIM(vendor)) = :vname))";
+
                 // Open jobs for this vendor
-                $stmtOpen = $db->prepare("SELECT * FROM gas_complaints WHERE deleted = 0 AND vendor_id = :vid AND status NOT IN ('Delivered', 'Resolved', 'Closed')");
-                $stmtOpen->execute(['vid' => $v['id']]);
+                $stmtOpen = $db->prepare("SELECT * FROM gas_complaints WHERE deleted = 0 AND {$vCond} AND status NOT IN ('Delivered', 'Resolved', 'Closed') ORDER BY created_at DESC");
+                $stmtOpen->execute(['vid' => $vId, 'vid_str' => (string)$vId, 'vname' => $vName]);
                 $open = $stmtOpen->fetchAll();
 
                 // Delivered jobs
-                $stmtDel = $db->prepare("SELECT COUNT(*) FROM gas_complaints WHERE deleted = 0 AND vendor_id = :vid AND status IN ('Delivered', 'Resolved', 'Closed')");
-                $stmtDel->execute(['vid' => $v['id']]);
+                $stmtDel = $db->prepare("SELECT COUNT(*) FROM gas_complaints WHERE deleted = 0 AND {$vCond} AND status IN ('Delivered', 'Resolved', 'Closed')");
+                $stmtDel->execute(['vid' => $vId, 'vid_str' => (string)$vId, 'vname' => $vName]);
                 $delivered = $stmtDel->fetchColumn();
 
                 // Generate WhatsApp text report
