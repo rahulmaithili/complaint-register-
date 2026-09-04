@@ -505,9 +505,12 @@ function renderLoginPage() {
           </div>
           <div class="form-group">
             <label>Password / Code</label>
-            <div class="input-wrapper">
+            <div class="input-wrapper" style="position: relative;">
               <i class="fas fa-lock"></i>
-              <input type="password" id="password" required placeholder="••••••••">
+              <input type="password" id="password" required placeholder="••••••••" style="padding-right: 38px;">
+              <button type="button" onclick="togglePasswordVisibility('password', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #64748b; font-size: 0.95rem; padding: 4px; z-index: 5;" title="Toggle Password Visibility">
+                <i class="fas fa-eye"></i>
+              </button>
             </div>
           </div>
           <button type="submit" class="btn-submit" id="submitBtn">Log In</button>
@@ -544,9 +547,12 @@ function renderLoginPage() {
           </div>
           <div class="form-group">
             <label>New Password Requested *</label>
-            <div class="input-wrapper">
+            <div class="input-wrapper" style="position: relative;">
               <i class="fas fa-lock"></i>
-              <input type="password" id="forgotPassword" required placeholder="••••••••">
+              <input type="password" id="forgotPassword" required placeholder="••••••••" style="padding-right: 38px;">
+              <button type="button" onclick="togglePasswordVisibility('forgotPassword', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #64748b; font-size: 0.95rem; padding: 4px; z-index: 5;" title="Toggle Password Visibility">
+                <i class="fas fa-eye"></i>
+              </button>
             </div>
           </div>
           <button type="submit" class="btn-submit" id="forgotSubmitBtn">Request Reset</button>
@@ -558,6 +564,19 @@ function renderLoginPage() {
       </div>
 
       <script>
+        function togglePasswordVisibility(inputId, btnEl) {
+          const input = document.getElementById(inputId);
+          if (!input) return;
+          const icon = btnEl ? btnEl.querySelector('i') : null;
+          if (input.type === 'password') {
+            input.type = 'text';
+            if (icon) icon.className = 'fas fa-eye-slash';
+          } else {
+            input.type = 'password';
+            if (icon) icon.className = 'fas fa-eye';
+          }
+        }
+
         function handleLoginSubmit(e) {
           e.preventDefault();
           const u = document.getElementById('username').value.trim();
@@ -5022,7 +5041,12 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
           </div>
           <div class="form-group">
             <label id="uPwLabel">Password *</label>
-            <input type="password" id="u_pw" class="form-control">
+            <div style="position: relative; display: flex; align-items: center;">
+              <input type="password" id="u_pw" class="form-control" style="padding-right: 38px;">
+              <button type="button" onclick="togglePasswordVisibility('u_pw', this)" style="position: absolute; right: 8px; background: none; border: none; cursor: pointer; color: #64748b; font-size: 1rem; padding: 4px; display: flex; align-items: center; justify-content: center; z-index: 5;" title="Toggle Password Visibility">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
           </div>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -5100,7 +5124,12 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
         </div>
         <div class="form-group">
           <label>New Password (leave blank to keep current)</label>
-          <input type="password" id="my_profile_pw" class="form-control" placeholder="Optional new password">
+          <div style="position: relative; display: flex; align-items: center;">
+            <input type="password" id="my_profile_pw" class="form-control" placeholder="Optional new password" style="padding-right: 38px;">
+            <button type="button" onclick="togglePasswordVisibility('my_profile_pw', this)" style="position: absolute; right: 8px; background: none; border: none; cursor: pointer; color: #64748b; font-size: 1rem; padding: 4px; display: flex; align-items: center; justify-content: center; z-index: 5;" title="Toggle Password Visibility">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
         </div>
         
         <!-- Profile Photo -->
@@ -5330,6 +5359,19 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       localStorage.setItem('gas_dark_mode', enabled ? 'true' : 'false');
       const toggle = document.getElementById('darkModeToggle');
       if (toggle) toggle.checked = enabled;
+    }
+
+    function togglePasswordVisibility(inputId, btnEl) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      const icon = btnEl ? btnEl.querySelector('i') : null;
+      if (input.type === 'password') {
+        input.type = 'text';
+        if (icon) icon.className = 'fas fa-eye-slash';
+      } else {
+        input.type = 'password';
+        if (icon) icon.className = 'fas fa-eye';
+      }
     }
 
     function restoreAppearance() {
