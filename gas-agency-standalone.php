@@ -6247,15 +6247,20 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
     function quickMarkDelivered(id, consumerName) {
       Swal.fire({
         title: 'Mark Case #' + id + ' Delivered?',
-        text: `Confirm resolution for ${consumerName || 'Consumer'}`,
+        text: `Confirm delivery for ${consumerName || 'Consumer'} (Signature is Optional)`,
         icon: 'question',
         showCancelButton: true,
-        confirmButtonText: 'Yes, Mark Resolved',
+        showDenyButton: true,
+        confirmButtonText: '⚡ Fast Deliver (No Signature)',
+        denyButtonText: '✍️ Add Sign / Photo (Optional)',
         confirmButtonColor: '#10b981',
+        denyButtonColor: '#3b82f6',
         cancelButtonText: 'Cancel'
       }).then((result) => {
         if (result.isConfirmed) {
           submitResolutionNoSign(id);
+        } else if (result.isDenied) {
+          openMarkDeliveredModal(id);
         }
       });
     }
@@ -6350,11 +6355,11 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
       // Load resolution modal dialog
       const markup = `
         <div style="margin-bottom:1.25rem;">
-          <h2 style="margin:0;font-weight:800;color:#10b981;">Mark Case #${id} Resolved</h2>
-          <p style="margin:0.25rem 0 0 0;color:var(--text-muted);font-size:0.85rem;">Capture signature or attach photo proof to complete resolution.</p>
+          <h2 style="margin:0;font-weight:800;color:#10b981;">Mark Delivery Complete - Case #${id}</h2>
+          <p style="margin:0.25rem 0 0 0;color:var(--text-muted);font-size:0.85rem;">Customer signature & receipt photo are <b>100% OPTIONAL</b>.</p>
         </div>
         <div class="form-group">
-          <label><i class="fas fa-signature"></i> Customer Digital Signature</label>
+          <label><i class="fas fa-signature"></i> Customer Digital Signature (Optional)</label>
           <div class="sig-canvas-container">
             <canvas id="sigCanvas"></canvas>
           </div>
@@ -6370,8 +6375,8 @@ $logoUrl = ($companyInfo['company_logo'] && $companyInfo['company_logo'] !== 'de
 
       document.getElementById('detailsModalBody').innerHTML = markup;
       document.getElementById('detailsModalFooter').innerHTML = `
-        <button class="btn btn-success" onclick="submitResolution(${id})"><i class="fas fa-check"></i> Submit Resolution</button>
-        <button class="btn btn-outline" onclick="submitResolutionNoSign(${id})" style="background:#f1f5f9;color:#475569;"><i class="fas fa-check-circle"></i> Resolve Without Sign</button>
+        <button class="btn btn-success" onclick="submitResolutionNoSign(${id})"><i class="fas fa-check-circle"></i> Mark Delivered (Without Signature)</button>
+        <button class="btn btn-primary" onclick="submitResolution(${id})" style="background:#3b82f6; border:none;"><i class="fas fa-signature"></i> Save With Signature</button>
         <button class="btn btn-secondary" onclick="viewComplaintDetails(${id})">Back</button>
       `;
 
