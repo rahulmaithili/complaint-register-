@@ -761,35 +761,35 @@
         </div>
 
         <div class="stats-grid" id="statsGrid" style="grid-template-columns: repeat(5, 1fr);">
-          <div class="stat-card premium-card-1">
+          <div class="stat-card premium-card-1" onclick="setPipelineFilter('All')" style="cursor:pointer;" title="Show All Records">
             <div class="stat-icon"><i class="fas fa-layer-group"></i></div>
             <div class="stat-info">
               <div class="value" id="statTotal">0</div>
               <div class="label">Total Cases</div>
             </div>
           </div>
-          <div class="stat-card premium-card-2">
+          <div class="stat-card premium-card-2" onclick="setPipelineFilter('Pending')" style="cursor:pointer;" title="Show Pending Complaints">
             <div class="stat-icon"><i class="fas fa-clock"></i></div>
             <div class="stat-info">
               <div class="value" id="statPending">0</div>
               <div class="label">Pending</div>
             </div>
           </div>
-          <div class="stat-card premium-card-3">
+          <div class="stat-card premium-card-3" onclick="setPipelineFilter('In Progress')" style="cursor:pointer;" title="Show In Progress / Assigned">
             <div class="stat-icon"><i class="fas fa-running"></i></div>
             <div class="stat-info">
               <div class="value" id="statProgress">0</div>
               <div class="label">In Progress</div>
             </div>
           </div>
-          <div class="stat-card premium-card-4">
+          <div class="stat-card premium-card-4" onclick="setPipelineFilter('Delivered')" style="cursor:pointer;" title="Show Delivered Complaints">
             <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
             <div class="stat-info">
               <div class="value" id="statDelivered">0</div>
               <div class="label">Delivered</div>
             </div>
           </div>
-          <div class="stat-card" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: white;">
+          <div class="stat-card" onclick="setPipelineFilter('All')" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: white; cursor:pointer;" title="Show All Records">
             <div class="stat-icon" style="color: #38bdf8;"><i class="fas fa-calendar-day"></i></div>
             <div class="stat-info">
               <div class="value" id="statToday" style="color: #38bdf8;">0</div>
@@ -816,9 +816,9 @@
 
         <!-- Chevron Status Pipeline Flow -->
         <div class="pipeline-container">
-          <div class="pipeline-step step-all active" onclick="setPipelineFilter('')">All Active</div>
+          <div class="pipeline-step step-all active" onclick="setPipelineFilter('Active')">All Active</div>
           <div class="pipeline-step step-pending" onclick="setPipelineFilter('Pending')">Pending</div>
-          <div class="pipeline-step step-progress" onclick="setPipelineFilter('In Progress')">In Progress</div>
+          <div class="pipeline-step step-progress step-in-progress" onclick="setPipelineFilter('In Progress')">In Progress</div>
           <div class="pipeline-step step-delivered" onclick="setPipelineFilter('Delivered')">Delivered</div>
           <div class="pipeline-step step-resolved" onclick="setPipelineFilter('Resolved')">Resolved</div>
         </div>
@@ -855,11 +855,12 @@
                   <i class="fas fa-tasks text-primary"></i> STATUS TYPE
                 </label>
                 <select id="filterStatus" class="form-control" onchange="syncPipelineFilterAndLoad()">
-                  <option value="" selected>All Active</option>
+                  <option value="Active" selected>All Active</option>
                   <option value="Pending">Pending</option>
                   <option value="In Progress">In Progress</option>
                   <option value="Delivered">Delivered</option>
                   <option value="Resolved">Resolved</option>
+                  <option value="All">All Records (Total)</option>
                 </select>
               </div>
               <div class="form-group" id="filterSourceGroup" style="margin: 0;">
@@ -2769,15 +2770,28 @@
       });
     }
 
+    function getPipelineStepClass(status) {
+      if (!status) return 'step-all';
+      const s = status.toLowerCase();
+      if (s === 'all' || s === 'active' || s === 'all active') return 'step-all';
+      if (s === 'pending') return 'step-pending';
+      if (s === 'in progress' || s === 'in-progress' || s === 'assigned' || s === 'progress') return 'step-progress';
+      if (s === 'delivered') return 'step-delivered';
+      if (s === 'resolved') return 'step-resolved';
+      return 'step-' + s.replace(/\s+/g, '-');
+    }
+
     function setPipelineFilter(status) {
-      document.getElementById('filterStatus').value = status;
+      if (!status || status === 'All Active') status = 'Active';
+      const filterEl = document.getElementById('filterStatus');
+      if (filterEl) filterEl.value = status;
       
       document.querySelectorAll('.pipeline-step').forEach(step => {
         step.classList.remove('active');
       });
       
-      const stepClass = status === '' ? 'step-all' : 'step-' + status.toLowerCase().replace(' ', '-');
-      const activeStep = document.querySelector('.pipeline-step.' + stepClass);
+      const stepClass = getPipelineStepClass(status);
+      const activeStep = document.querySelector('.pipeline-step.' + stepClass) || document.querySelector('.pipeline-step.step-' + status.toLowerCase().replace(/\s+/g, '-'));
       if (activeStep) {
         activeStep.classList.add('active');
       }
@@ -2786,14 +2800,16 @@
     }
 
     function syncPipelineFilterAndLoad() {
-      const status = document.getElementById('filterStatus').value;
+      const filterEl = document.getElementById('filterStatus');
+      let status = filterEl ? filterEl.value : 'Active';
+      if (!status || status === 'All Active') status = 'Active';
       
       document.querySelectorAll('.pipeline-step').forEach(step => {
         step.classList.remove('active');
       });
       
-      const stepClass = status === '' ? 'step-all' : 'step-' + status.toLowerCase().replace(' ', '-');
-      const activeStep = document.querySelector('.pipeline-step.' + stepClass);
+      const stepClass = getPipelineStepClass(status);
+      const activeStep = document.querySelector('.pipeline-step.' + stepClass) || document.querySelector('.pipeline-step.step-' + status.toLowerCase().replace(/\s+/g, '-'));
       if (activeStep) {
         activeStep.classList.add('active');
       }
@@ -2806,7 +2822,7 @@
       document.getElementById('filterSource').value = '';
       const tagEl = document.getElementById('filterTag');
       if (tagEl) tagEl.value = '';
-      setPipelineFilter('');
+      setPipelineFilter('Active');
     }
 
     function renderPermissionsChecklist() {

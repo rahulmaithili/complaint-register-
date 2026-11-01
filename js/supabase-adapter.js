@@ -443,7 +443,8 @@ async function handleSupabaseAction(urlStr, options) {
 
     case 'get_complaints': {
       if (!db) return { success: true, rows: [], complaints: [], total: 0, stats: {} };
-      const status = params.get('status') || '';
+      const rawStatus = (params.get('status') || '').trim();
+      const sLower = rawStatus.toLowerCase();
       const source = params.get('source') || '';
       const tag = params.get('tag') || '';
       const search = params.get('search') || '';
@@ -455,11 +456,20 @@ async function handleSupabaseAction(urlStr, options) {
       let query = db.from('gas_complaints').select('*', { count: 'exact' }).eq('deleted', 0);
       query = applyVendorFilterToQuery(query, vFilter);
 
-      if (status && status !== 'All') {
-        if (status === 'Active') {
-          query = query.neq('status', 'Delivered').neq('status', 'Resolved').neq('status', 'Closed');
+      if (!rawStatus || sLower === 'active' || sLower === 'all active') {
+        // Active Registry default view: show all open active complaints
+        query = query.neq('status', 'Delivered').neq('status', 'Resolved').neq('status', 'Closed');
+      } else if (sLower !== 'all') {
+        if (sLower === 'in progress' || sLower === 'assigned') {
+          query = query.in('status', ['In Progress', 'Assigned']);
+        } else if (sLower === 'delivered') {
+          query = query.in('status', ['Delivered', 'Resolved']);
+        } else if (sLower === 'resolved') {
+          query = query.in('status', ['Resolved', 'Delivered', 'Closed']);
+        } else if (sLower === 'pending') {
+          query = query.eq('status', 'Pending');
         } else {
-          query = query.eq('status', status);
+          query = query.eq('status', rawStatus);
         }
       }
       if (source && source !== 'All') {
