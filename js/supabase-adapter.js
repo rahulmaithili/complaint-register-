@@ -945,43 +945,36 @@ async function handleSupabaseAction(urlStr, options) {
     case 'get_consumer_by_mobile_or_number': {
       if (!db) return { success: false, message: 'Database offline' };
       const rawTerm = (params.get('query') || params.get('term') || params.get('q') || postData.query || postData.term || postData.q || '').trim();
+      const searchField = (params.get('field') || postData.field || '').trim().toLowerCase();
       if (!rawTerm) return { success: false, message: 'No search term' };
 
       let clean = rawTerm.replace(/^['"\s]+|['"\s]+$/g, '');
-      let mob10 = clean;
-      if (mob10.length > 10 && (mob10.startsWith('91') || mob10.startsWith('+91'))) {
-        mob10 = mob10.replace(/^\+?91/, '');
-      } else if (mob10.length > 10 && mob10.startsWith('0')) {
-        mob10 = mob10.substring(1);
-      }
+      let cleanMob = clean.replace(/\D/g, '');
 
-      let orFilters = [
-        `consumer_number.eq.${clean}`,
-        `mobile.eq.${clean}`
-      ];
-      if (mob10 !== clean) {
-        orFilters.push(`mobile.eq.${mob10}`);
-        orFilters.push(`consumer_number.eq.${mob10}`);
-      }
+      let queryBuilder = db.from('gas_consumers').select('*');
 
-      let { data, error } = await db
-        .from('gas_consumers')
-        .select('*')
-        .or(orFilters.join(','))
-        .limit(1);
-
-      // If not found and clean is at least 4 chars, fallback to partial search
-      if ((!data || data.length === 0) && clean.length >= 4) {
-        const fallback = await db
-          .from('gas_consumers')
-          .select('*')
-          .or(`consumer_number.ilike.%${clean}%,mobile.ilike.%${clean}%`)
-          .limit(1);
-        if (fallback.data && fallback.data.length > 0) {
-          data = fallback.data;
-          error = fallback.error;
+      if (searchField === 'mob' || (cleanMob.length === 10 && clean === cleanMob)) {
+        // Strict 10-digit mobile number lookup
+        let mobVariants = [`mobile.eq.${cleanMob}`];
+        mobVariants.push(`mobile.eq.+91${cleanMob}`);
+        mobVariants.push(`mobile.eq.91${cleanMob}`);
+        mobVariants.push(`mobile.eq.0${cleanMob}`);
+        queryBuilder = queryBuilder.or(mobVariants.join(','));
+      } else if (searchField === 'no') {
+        // Strict Consumer Number lookup: ONLY exact match on consumer_number (NO wildcards!)
+        queryBuilder = queryBuilder.eq('consumer_number', clean);
+      } else {
+        // Fallback when field is unspecified: exact consumer number OR exact 10-digit mobile
+        let orFilters = [`consumer_number.eq.${clean}`];
+        if (cleanMob.length === 10) {
+          orFilters.push(`mobile.eq.${cleanMob}`);
+          orFilters.push(`mobile.eq.+91${cleanMob}`);
+          orFilters.push(`mobile.eq.91${cleanMob}`);
         }
+        queryBuilder = queryBuilder.or(orFilters.join(','));
       }
+
+      let { data, error } = await queryBuilder.limit(1);
 
       if (error || !data || data.length === 0) {
         return { success: false, message: 'Consumer not found' };

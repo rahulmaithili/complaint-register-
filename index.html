@@ -1523,7 +1523,7 @@
       <div class="modal-body">
         <input type="hidden" id="c_id">
         <div class="form-group">
-          <label>Consumer Number <small style="color: #64748b; font-weight: normal;">(Auto-fetches details)</small></label>
+          <label>Consumer Number <small style="color: #64748b; font-weight: normal;">(Auto-fetches on 6+ digits)</small></label>
           <div style="position: relative;">
             <input type="text" id="c_no" class="form-control" placeholder="Enter Consumer No (e.g. 609317)" oninput="handleConsumerInput('no')" onblur="lookupConsumer('no')" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupConsumer('no');}">
             <span id="c_no_spinner" style="display:none; position:absolute; right:12px; top:50%; transform:translateY(-50%); color:#3b82f6;"><i class="fas fa-spinner fa-spin"></i></span>
@@ -6915,15 +6915,23 @@
       clearTimeout(consumerLookupTimer);
       if (field === 'mob') {
         const val = document.getElementById('c_mob').value.trim().replace(/\D/g, '');
+        if (val.length < 10) {
+          lastLookedUpVal = '';
+        }
+        // Strict: ONLY auto-fetch when exactly 10 digits are entered
         if (val.length === 10) {
           lookupConsumer('mob');
         }
       } else if (field === 'no') {
         const val = document.getElementById('c_no').value.trim();
-        if (val.length >= 4) {
+        if (val.length < 6) {
+          lastLookedUpVal = '';
+        }
+        // Strict: ONLY auto-fetch when at least 6 digits are entered
+        if (val.length >= 6) {
           consumerLookupTimer = setTimeout(() => {
             lookupConsumer('no');
-          }, 350);
+          }, 600);
         }
       }
     }
@@ -6933,8 +6941,10 @@
       const spinner = document.getElementById(field === 'no' ? 'c_no_spinner' : 'c_mob_spinner');
       if (field === 'no') {
         val = document.getElementById('c_no').value.trim();
+        if (val.length < 6) return; // Never search on less than 6 digits
       } else if (field === 'mob') {
-        val = document.getElementById('c_mob').value.trim();
+        val = document.getElementById('c_mob').value.trim().replace(/\D/g, '');
+        if (val.length !== 10) return; // Never search on anything other than 10 digits
       }
       if (!val || val === lastLookedUpVal) return;
 
@@ -6943,16 +6953,24 @@
 
       if (spinner) spinner.style.display = 'block';
 
-      fetch(`?action=get_consumer_by_mobile_or_number&query=${encodeURIComponent(val)}`)
+      fetch(`?action=get_consumer_by_mobile_or_number&query=${encodeURIComponent(val)}&field=${field}`)
         .then(res => res.json())
         .then(res => {
           if (spinner) spinner.style.display = 'none';
           if (res.success && res.consumer) {
             lastLookedUpVal = val;
             const cons = res.consumer;
-            if (cons.consumer_number) document.getElementById('c_no').value = cons.consumer_number;
+            // When lookup was by mobile, fill consumer_number
+            if (field === 'mob' && cons.consumer_number) {
+              document.getElementById('c_no').value = cons.consumer_number;
+            } else if (field === 'no' && cons.consumer_number && !document.getElementById('c_no').value) {
+              document.getElementById('c_no').value = cons.consumer_number;
+            }
             if (cons.consumer_name) document.getElementById('c_name').value = cons.consumer_name;
-            if (cons.mobile) document.getElementById('c_mob').value = cons.mobile;
+            // When lookup was by consumer_number, fill mobile
+            if (field === 'no' && cons.mobile) {
+              document.getElementById('c_mob').value = cons.mobile;
+            }
             if (cons.address) {
               let fullAddr = cons.address;
               if (cons.area && !fullAddr.toLowerCase().includes(cons.area.toLowerCase())) {
@@ -6962,7 +6980,7 @@
             }
 
             // Green highlight animation to clearly indicate successful autofill
-            ['c_no', 'c_name', 'c_mob', 'c_addr'].forEach(id => {
+            ['c_name', 'c_addr', field === 'no' ? 'c_mob' : 'c_no'].forEach(id => {
               const el = document.getElementById(id);
               if (el) {
                 el.style.borderColor = '#10b981';
